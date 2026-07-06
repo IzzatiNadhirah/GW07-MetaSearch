@@ -27,7 +27,7 @@ mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 // Database: gw07 (Primary Database)
 // ──────────────────────────────────────────────────────────────────────────
 define('DB_SERVER', 'localhost'); // bitp3353.utem.edu.my (Server Madam)
-define('DB_USERNAME', 'gw07');
+define('DB_USERNAME', 'GW07');
 define('DB_PASSWORD', 'password');
 define('DB_NAME', 'gw07');
 
