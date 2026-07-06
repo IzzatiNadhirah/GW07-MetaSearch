@@ -9,10 +9,15 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/db_connect.php'; // adjust path if your folder depth differs
 
-// Use the appropriate connection (gw07 for multimedia_asset)
-global $conn_gw07, $conn_mmdb;
+// Use the appropriate connection
+global $conn;
 
 try {
+    // ✅ FIXED: Check if connection exists
+    if ($conn === null) {
+        throw new Exception("Database connection is not available.");
+    }
+
     // Capture and validate all inputs
     $fileType    = $_POST['fileType'] ?? 'All';
     $maxSize     = isset($_POST['maxSize']) ? (float) $_POST['maxSize'] : 500;   // MB, from slider
@@ -27,26 +32,16 @@ try {
     if ($maxSize <= 0)     { $maxSize = 500; }
     if ($maxDuration <= 0) { $maxDuration = 3600; }
 
-    // Check if remote database is available for owner name lookup
-    $remote_available = isRemoteDbConnected();
+    // Check if database is available
+    $db_available = isDbConnected();
 
     // Base query: join video_metadata for resolution/duration
-    // Use student_users from local gw07 or vstu from remote mmdb2026 for owner name
-    if ($remote_available && $conn_mmdb !== null) {
-        // Remote DB available - use vstu for owner names
-        $sql = "SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
-                FROM multimedia_asset a
-                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-                LEFT JOIN vstu v ON a.matric_number = v.matric_no
-                WHERE a.file_size_kb <= ?";
-    } else {
-        // Fallback to local student_users if remote DB not available
-        $sql = "SELECT a.*, su.full_name AS owner_name, vm.resolution, vm.duration_seconds
-                FROM multimedia_asset a
-                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-                LEFT JOIN student_users su ON a.matric_number = su.matric_number
-                WHERE a.file_size_kb <= ?";
-    }
+    // Use vstu for owner names (now in same database)
+    $sql = "SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
+            FROM multimedia_asset a
+            LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+            LEFT JOIN vstu v ON a.matric_number = v.matric_no
+            WHERE a.file_size_kb <= ?";
 
     $types  = "d";
     $params = [$maxSize * 1024]; // convert MB (slider) -> KB (schema unit)
@@ -77,8 +72,12 @@ try {
     $types .= "i";
     $params[] = $maxDuration;
 
-    // Use gw07 connection for the query
-    $stmt = $conn_gw07->prepare($sql);
+    // ✅ FIXED: Check if prepare succeeded before using bind_param
+    $stmt = $conn->prepare($sql);
+    if ($stmt === false) {
+        throw new Exception("Failed to prepare query: " . $conn->error);
+    }
+
     $stmt->bind_param($types, ...$params);
     $stmt->execute();
     $result = $stmt->get_result();
