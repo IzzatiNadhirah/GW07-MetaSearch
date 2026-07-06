@@ -8,16 +8,20 @@
 
 require_once __DIR__ . '/../config/db_connect.php';
 
-// Use both connections
-global $conn_gw07, $conn_mmdb;
+// ✅ FIXED: Get connection from GLOBALS array
+$conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
+
+// ✅ FIXED: Check if connection exists and is valid
+if ($conn === null || !$conn->ping()) {
+    $conn_error = "Database connection is not available.";
+} else {
+    $conn_error = null;
+}
 
 $search_performed = false;
 $error_message = null;
 $result = null;
 $query_term = isset($_GET['q']) ? trim($_GET['q']) : '';
-
-// Check if remote database is available for owner name lookup
-$remote_available = isRemoteDbConnected();
 
 // --------------------------------------------------------------------------
 // Suggested tags: pull a handful of distinct tags from text_metadata so users
@@ -25,18 +29,20 @@ $remote_available = isRemoteDbConnected();
 // --------------------------------------------------------------------------
 $suggestedTags = [];
 try {
-    $tagResult = $conn_gw07->query("SELECT tags FROM text_metadata WHERE tags IS NOT NULL AND tags <> '' LIMIT 50");
-    if ($tagResult) {
-        $seen = [];
-        while ($row = $tagResult->fetch_assoc()) {
-            // tags column stores comma-separated values (e.g. "nature,travel,sunset")
-            foreach (explode(',', $row['tags']) as $tag) {
-                $tag = trim($tag);
-                if ($tag !== '' && !isset($seen[$tag])) {
-                    $seen[$tag] = true;
-                    $suggestedTags[] = $tag;
+    if ($conn !== null) {
+        $tagResult = $conn->query("SELECT tags FROM text_metadata WHERE tags IS NOT NULL AND tags <> '' LIMIT 50");
+        if ($tagResult) {
+            $seen = [];
+            while ($row = $tagResult->fetch_assoc()) {
+                // tags column stores comma-separated values (e.g. "nature,travel,sunset")
+                foreach (explode(',', $row['tags']) as $tag) {
+                    $tag = trim($tag);
+                    if ($tag !== '' && !isset($seen[$tag])) {
+                        $seen[$tag] = true;
+                        $suggestedTags[] = $tag;
+                    }
+                    if (count($suggestedTags) >= 8) break 2;
                 }
-                if (count($suggestedTags) >= 8) break 2;
             }
         }
     }
@@ -54,6 +60,8 @@ if (isset($_GET['search'])) {
 
     if ($query_term === '') {
         $error_message = "Please enter a keyword, tag, or title to search for.";
+    } elseif ($conn_error !== null) {
+        $error_message = $conn_error;
     } else {
         try {
             // ✅ FIXED: Define $sql outside the conditional blocks
@@ -66,61 +74,34 @@ if (isset($_GET['search'])) {
             // A row matching either counts as a hit; fulltext hits are ranked
             // higher via the relevance score.
             
-            // Check if remote database is available for owner name lookup
-            if ($remote_available && $conn_mmdb !== null) {
-                // Remote DB available - include owner name from vstu
-                $sql = "
-                SELECT
-                    ma.asset_id,
-                    ma.title,
-                    ma.file_name,
-                    ma.file_path,
-                    ma.file_type,
-                    ma.upload_date,
-                    tm.keywords,
-                    tm.tags,
-                    tm.captions,
-                    tm.description,
-                    v.full_name AS owner_name,
-                    MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-                FROM multimedia_asset ma
-                JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-                LEFT JOIN vstu v ON ma.matric_number = v.matric_no
-                WHERE
-                    MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
-                    OR ma.title LIKE ?
-                    OR tm.captions LIKE ?
-                ORDER BY relevance DESC, ma.upload_date DESC
-                ";
-            } else {
-                // Fallback: owner name not available from remote DB
-                $sql = "
-                SELECT
-                    ma.asset_id,
-                    ma.title,
-                    ma.file_name,
-                    ma.file_path,
-                    ma.file_type,
-                    ma.upload_date,
-                    tm.keywords,
-                    tm.tags,
-                    tm.captions,
-                    tm.description,
-                    'Unknown' AS owner_name,
-                    MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-                FROM multimedia_asset ma
-                JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-                WHERE
-                    MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
-                    OR ma.title LIKE ?
-                    OR tm.captions LIKE ?
-                ORDER BY relevance DESC, ma.upload_date DESC
-                ";
-            }
+            // Use vstu for owner names (now in same database)
+            $sql = "
+            SELECT
+                ma.asset_id,
+                ma.title,
+                ma.file_name,
+                ma.file_path,
+                ma.file_type,
+                ma.upload_date,
+                tm.keywords,
+                tm.tags,
+                tm.captions,
+                tm.description,
+                v.full_name AS owner_name,
+                MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
+            FROM multimedia_asset ma
+            JOIN text_metadata tm ON ma.asset_id = tm.asset_id
+            LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+            WHERE
+                MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
+                OR ma.title LIKE ?
+                OR tm.captions LIKE ?
+            ORDER BY relevance DESC, ma.upload_date DESC
+            ";
 
             // ✅ $sql is now always defined before this point
             if (!empty($sql)) {
-                $stmt = mysqli_prepare($conn_gw07, $sql);
+                $stmt = mysqli_prepare($conn, $sql);
                 if ($stmt) {
                     $likeTerm = '%' . $query_term . '%';
                     mysqli_stmt_bind_param($stmt, "ssss", $query_term, $query_term, $likeTerm, $likeTerm);
