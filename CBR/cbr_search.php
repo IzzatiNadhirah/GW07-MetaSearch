@@ -9,8 +9,15 @@
 // UPDATED: use the single shared connection file (was: include 'db.php')
 require_once __DIR__ . '/../config/db_connect.php';
 
-// Use both connections
-global $conn_gw07, $conn_mmdb;
+// ✅ FIXED: Get connection from GLOBALS array
+$conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
+
+// ✅ FIXED: Check if connection exists and is valid
+if ($conn === null || !$conn->ping()) {
+    $conn_error = "Database connection is not available.";
+} else {
+    $conn_error = null;
+}
 
 $result = "";
 $search_performed = false;
@@ -33,6 +40,10 @@ if (isset($_GET['search'])) {
     // NEW: reject empty search value
     elseif ($value === '') {
         $error_message = "Please enter a search value.";
+    }
+    // ✅ FIXED: Check for connection error before proceeding
+    elseif ($conn_error !== null) {
+        $error_message = $conn_error;
     } else {
 
         switch ($type) {
@@ -53,7 +64,7 @@ if (isset($_GET['search'])) {
                 ON ma.asset_id = im.asset_id
                 WHERE im.dominant_color LIKE ?
                 ";
-                $stmt = mysqli_prepare($conn_gw07, $sql);
+                $stmt = mysqli_prepare($conn, $sql);
                 if ($stmt) {
                     $likeValue = '%' . $value . '%';
                     mysqli_stmt_bind_param($stmt, "s", $likeValue);
@@ -84,7 +95,7 @@ if (isset($_GET['search'])) {
                 WHERE vm.duration_seconds >= ?
                 ORDER BY vm.duration_seconds DESC
                 ";
-                $stmt = mysqli_prepare($conn_gw07, $sql);
+                $stmt = mysqli_prepare($conn, $sql);
                 if ($stmt) {
                     mysqli_stmt_bind_param($stmt, "i", $seconds);
                 } else {
@@ -115,7 +126,7 @@ if (isset($_GET['search'])) {
                 WHERE am.duration_seconds >= ?
                 ORDER BY am.duration_seconds DESC
                 ";
-                $stmt = mysqli_prepare($conn_gw07, $sql);
+                $stmt = mysqli_prepare($conn, $sql);
                 if ($stmt) {
                     mysqli_stmt_bind_param($stmt, "i", $seconds);
                 } else {
@@ -144,7 +155,7 @@ if (isset($_GET['search'])) {
                 WHERE dm.page_count >= ?
                 ORDER BY dm.page_count DESC
                 ";
-                $stmt = mysqli_prepare($conn_gw07, $sql);
+                $stmt = mysqli_prepare($conn, $sql);
                 if ($stmt) {
                     mysqli_stmt_bind_param($stmt, "i", $pageCount);
                 } else {
