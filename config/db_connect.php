@@ -1,24 +1,18 @@
 <?php
 // ==========================================================================
 // db_connect.php
-// Dual Database Connection for MetaSearch Project
+// Single Database Connection for MetaSearch Project
 // ==========================================================================
 // 
 // DATABASE CONFIGURATION:
 // ┌─────────────────────────────────────────────────────────────────────────┐
-// │ Database 1: gw07 (Localhost)                                          │
-// │   - Host: localhost                                                   │
-// │   - Username: root                                                    │
-// │   - Password: (empty)                                                 │
-// │   - Database: gw07                                                    │
-// │   - Used for: Main project data (multimedia_asset, metadata tables)   │
-// ├─────────────────────────────────────────────────────────────────────────┤
-// │ Database 2: mmdb2026 (Remote - bitp3353.utem.edu.my)                  │
-// │   - Host: bitp3353.utem.edu.my                                        │
+// │ Database: gw07 (Remote Server - bitp3353.utem.edu.my)                 │
+// │   - Host: localhost (or bitp3353.utem.edu.my for production)          │
 // │   - Username: gw07                                                    │
 // │   - Password: password                                                │
-// │   - Database: mmdb2026                                                │
-// │   - Used for: Student data (vstu table)                               │
+// │   - Database: gw07                                                    │
+// │   - Used for: All project data (multimedia_asset, metadata tables,    │
+// │                student data via vstu)                                 │
 // └─────────────────────────────────────────────────────────────────────────┘
 // ==========================================================================
 
@@ -26,28 +20,115 @@
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 // ==========================================================================
-// DATABASE 1: gw07 (Localhost)
+// DATABASE CONFIGURATION
 // ==========================================================================
+
+// ──────────────────────────────────────────────────────────────────────────
+// Database: gw07 (Primary Database)
+// ──────────────────────────────────────────────────────────────────────────
+define('DB_SERVER', 'localhost'); // bitp3353.utem.edu.my (Server Madam)
+define('DB_USERNAME', 'gw07');
+define('DB_PASSWORD', 'password');
+define('DB_NAME', 'gw07');
+
+// ==========================================================================
+// ESTABLISH CONNECTION
+// ==========================================================================
+
+// ──────────────────────────────────────────────────────────────────────────
+// Connection: gw07 Database (REQUIRED - must work)
+// ──────────────────────────────────────────────────────────────────────────
+try {
+    $conn = new mysqli(DB_SERVER, DB_USERNAME, DB_PASSWORD, DB_NAME);
+    $conn->set_charset("utf8mb4");
+} catch (mysqli_sql_exception $e) {
+    die("Database Connection Engine Failure (gw07): " . $e->getMessage());
+}
+
+// ==========================================================================
+// HELPER FUNCTIONS FOR DATABASE ACCESS
+// ==========================================================================
+
+/**
+ * Check if database is connected
+ * 
+ * @return bool True if database is connected
+ */
+function isDbConnected() {
+    global $conn;
+    return ($conn !== null);
+}
+
+/**
+ * Get the database connection
+ * 
+ * @return mysqli The database connection object
+ */
+function getDbConnection() {
+    global $conn;
+    return $conn;
+}
+
+/**
+ * Execute a query on the database
+ * 
+ * @param string $sql SQL query string
+ * @return mysqli_result|bool Query result
+ */
+function executeQuery($sql) {
+    global $conn;
+    return $conn->query($sql);
+}
+
+/**
+ * Prepare a statement on the database
+ * 
+ * @param string $sql SQL query string
+ * @return mysqli_stmt|false Prepared statement
+ */
+function prepareStatement($sql) {
+    global $conn;
+    return $conn->prepare($sql);
+}
+
+// ==========================================================================
+// BACKWARD COMPATIBILITY: Additional connection variables for legacy code
+// ==========================================================================
+// For compatibility with code that expects separate connections
+$conn_gw07 = $conn;  // Alias for backward compatibility
+$conn_mmdb = null;   // Kept for compatibility but not used
+$mmdb_connected = true; // Always true since we're using single DB
+$mmdb_error = null;
+
+/**
+ * Check if remote database is connected (kept for backward compatibility)
+ * 
+ * @return bool True if database is connected
+ */
+function isRemoteDbConnected() {
+    return true; // Always true since we're using single DB
+}
+
+/**
+ * Get remote database error message (kept for backward compatibility)
+ * 
+ * @return string|null Error message or null if no error
+ */
+function getRemoteDbError() {
+    return null; // No error since we're using single DB
+}
+
+// ==========================================================================
+// OLD LOCALHOST CONFIGURATION (Commented out for reference)
+// ==========================================================================
+/*
+// DATABASE: gw07 (Localhost - Old Configuration)
 define('DB1_SERVER', 'localhost');
 define('DB1_USERNAME', 'root');
 define('DB1_PASSWORD', '');
 define('DB1_NAME', 'gw07');
 
-// ==========================================================================
-// DATABASE 2: mmdb2026 (Remote Server - bitp3353.utem.edu.my)
-// ==========================================================================
-define('DB2_SERVER', 'bitp3353.utem.edu.my');
-define('DB2_USERNAME', 'gw07');
-define('DB2_PASSWORD', 'password');
-define('DB2_NAME', 'mmdb2026');
-
-// ==========================================================================
-// ESTABLISH CONNECTIONS
-// ==========================================================================
-
-// ──────────────────────────────────────────────────────────────────────────
 // Connection 1: Local gw07 Database (REQUIRED - must work)
-// ──────────────────────────────────────────────────────────────────────────
 try {
     $conn_gw07 = new mysqli(DB1_SERVER, DB1_USERNAME, DB1_PASSWORD, DB1_NAME);
     $conn_gw07->set_charset("utf8mb4");
@@ -55,9 +136,7 @@ try {
     die("Database Connection Engine Failure (gw07): " . $e->getMessage());
 }
 
-// ──────────────────────────────────────────────────────────────────────────
 // Connection 2: Remote mmdb2026 Database (OPTIONAL - can fail gracefully)
-// ──────────────────────────────────────────────────────────────────────────
 $conn_mmdb = null;
 $mmdb_connected = false;
 $mmdb_error = null;
@@ -67,110 +146,9 @@ try {
     $conn_mmdb->set_charset("utf8mb4");
     $mmdb_connected = true;
 } catch (mysqli_sql_exception $e) {
-    // Remote DB connection failed - store error for logging but don't crash
     $mmdb_error = $e->getMessage();
     $mmdb_connected = false;
     error_log("mmdb2026 connection failed: " . $mmdb_error);
-    // Connection remains null - will be handled gracefully
 }
-
-// ==========================================================================
-// BACKWARD COMPATIBILITY: $conn points to gw07 (default)
-// ==========================================================================
-$conn = $conn_gw07;
-
-// ==========================================================================
-// HELPER FUNCTIONS FOR DUAL DATABASE ACCESS
-// ==========================================================================
-
-/**
- * Get the appropriate database connection based on table name
- * 
- * @param string $tableName The table name to check
- * @return mysqli|null The appropriate connection object or null if unavailable
- */
-function getDbConnection($tableName) {
-    global $conn_gw07, $conn_mmdb, $mmdb_connected;
-    
-    // Tables that belong to gw07 (local) - ALWAYS available
-    $gw07Tables = [
-        'multimedia_asset',
-        'image_metadata',
-        'audio_metadata',
-        'video_metadata',
-        'document_metadata',
-        'text_metadata',
-        'system_metadata_analytics'
-    ];
-    
-    // Tables that belong to mmdb2026 (remote) - may NOT be available
-    $mmdbTables = [
-        'vstu',
-        'student_users'
-    ];
-    
-    if (in_array($tableName, $gw07Tables)) {
-        return $conn_gw07;
-    } elseif (in_array($tableName, $mmdbTables)) {
-        // Only return mmdb connection if it's actually connected
-        if ($mmdb_connected && $conn_mmdb !== null) {
-            return $conn_mmdb;
-        } else {
-            return null; // Remote DB not available
-        }
-    } else {
-        // Default to gw07 if unknown
-        return $conn_gw07;
-    }
-}
-
-/**
- * Check if remote database is connected
- * 
- * @return bool True if mmdb2026 is connected
- */
-function isRemoteDbConnected() {
-    global $mmdb_connected;
-    return $mmdb_connected;
-}
-
-/**
- * Get remote database error message
- * 
- * @return string|null Error message or null if no error
- */
-function getRemoteDbError() {
-    global $mmdb_error;
-    return $mmdb_error;
-}
-
-/**
- * Execute a query on the appropriate database based on table name
- * 
- * @param string $sql SQL query string
- * @param string $tableName The primary table name in the query
- * @return mysqli_result|bool|false Query result or false on failure
- */
-function executeQuery($sql, $tableName) {
-    $conn = getDbConnection($tableName);
-    if ($conn === null) {
-        return false;
-    }
-    return $conn->query($sql);
-}
-
-/**
- * Prepare a statement on the appropriate database based on table name
- * 
- * @param string $sql SQL query string
- * @param string $tableName The primary table name in the query
- * @return mysqli_stmt|false Prepared statement or false on failure
- */
-function prepareStatement($sql, $tableName) {
-    $conn = getDbConnection($tableName);
-    if ($conn === null) {
-        return false;
-    }
-    return $conn->prepare($sql);
-}
+*/
 ?>
