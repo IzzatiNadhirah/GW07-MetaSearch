@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attribute-Based Retrieval | MetaSearch</title>
+    <!-- UPDATED: Tailwind CDN removed — now uses the shared project stylesheet
+         (one folder up, since style.css moved to project root) so ABR matches
+         the CBR / TBR look. -->
+    <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+    <aside class="sidebar">
+        <h2>MetaSearch</h2>
+        <ul>
+            <li><a href="../dashboard.php">Dashboard</a></li>
+            <li><a href="abr_search.html" class="active">ABR</a></li>
+            <li><a href="../TBR/tbr.php">TBR</a></li>
+            <li><a href="../CBR/cbr_search.php">CBR</a></li>
+        </ul>
+    </aside>
+
+    <main class="main-content fade-in">
+        <div class="container">
+            <div class="header">
+                <h1>Attribute-Based Retrieval (ABR)</h1>
+                <div class="subtitle">Filter multimedia by structured metadata attributes</div>
+            </div>
+
+            <div class="panel">
+                <form id="abrForm" class="filter-form">
+                    <div class="form-group">
+                        <label for="fileType">File Type</label>
+                        <select id="fileType" name="fileType">
+                            <option value="All">All</option>
+                            <option value="image">Image</option>
+                            <option value="video">Video</option>
+                            <option value="audio">Audio</option>
+                            <option value="document">Document</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="maxSize">Max File Size (MB)</label>
+                        <input type="range" id="maxSize" name="maxSize" min="1" max="500" value="500">
+                        <span id="sizeValue" class="hint">500 MB</span>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="resolution">Resolution</label>
+                        <select id="resolution" name="resolution">
+                            <option value="All">All</option>
+                            <option value="720p">720p</option>
+                            <option value="1080p">1080p</option>
+                            <option value="4K">4K</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="maxDuration">Max Duration (seconds)</label>
+                        <input type="range" id="maxDuration" name="maxDuration" min="1" max="3600" value="3600">
+                        <span id="durationValue" class="hint">3600s</span>
+                    </div>
+
+                    <div class="form-group" style="flex-basis: 100%;">
+                        <label for="owner">Owner</label>
+                        <input type="text" id="owner" name="owner" placeholder="Search owner...">
+                    </div>
+
+                    <div class="filter-actions" style="flex-basis: 100%;">
+                        <button type="submit" class="btn btn-primary">Apply Filters</button>
+                        <button type="reset" class="btn-reset">Reset</button>
+                    </div>
+                </form>
+
+                <div class="hint">
+                    <strong>Note:</strong> Results are filtered server-side via <code>abr_filter.php</code> using file type, size, resolution, duration, and owner.
+                </div>
+            </div>
+
+            <!-- NEW: id kept as "resultsGrid" for script.js compatibility, class swapped
+                 from Tailwind's grid utilities to the shared .results-grid class -->
+            <div id="resultsGrid" class="results-grid"></div>
+
+            <a href="../dashboard.php" class="btn-back">← Back to Dashboard</a>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
