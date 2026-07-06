@@ -46,6 +46,27 @@ try {
 }
 
 // ==========================================================================
+// MAKE $conn WIDELY AVAILABLE ACROSS ALL FILES
+// ==========================================================================
+
+// 1. Register in $GLOBALS array for universal access
+$GLOBALS['conn'] = $conn;
+
+// 2. Create aliases for backward compatibility with existing code
+$GLOBALS['conn_gw07'] = $conn;  // For code expecting $conn_gw07
+$GLOBALS['conn_mmdb'] = null;   // For code expecting $conn_mmdb (not used)
+
+// 3. Set as local variables in global scope
+$conn_gw07 = $conn;
+$conn_mmdb = null;
+
+// 4. Status flags for backward compatibility
+$GLOBALS['mmdb_connected'] = true;
+$GLOBALS['mmdb_error'] = null;
+$mmdb_connected = true;
+$mmdb_error = null;
+
+// ==========================================================================
 // HELPER FUNCTIONS FOR DATABASE ACCESS
 // ==========================================================================
 
@@ -56,7 +77,7 @@ try {
  */
 function isDbConnected() {
     global $conn;
-    return ($conn !== null);
+    return ($conn !== null && $conn->ping());
 }
 
 /**
@@ -91,14 +112,30 @@ function prepareStatement($sql) {
     return $conn->prepare($sql);
 }
 
+/**
+ * Get the last inserted ID
+ * 
+ * @return int|string The last inserted ID
+ */
+function getLastInsertId() {
+    global $conn;
+    return $conn->insert_id;
+}
+
+/**
+ * Escape a string for safe SQL usage
+ * 
+ * @param string $string The string to escape
+ * @return string The escaped string
+ */
+function escapeString($string) {
+    global $conn;
+    return $conn->real_escape_string($string);
+}
+
 // ==========================================================================
-// BACKWARD COMPATIBILITY: Additional connection variables for legacy code
+// BACKWARD COMPATIBILITY FUNCTIONS (for code expecting remote DB)
 // ==========================================================================
-// For compatibility with code that expects separate connections
-$conn_gw07 = $conn;  // Alias for backward compatibility
-$conn_mmdb = null;   // Kept for compatibility but not used
-$mmdb_connected = true; // Always true since we're using single DB
-$mmdb_error = null;
 
 /**
  * Check if remote database is connected (kept for backward compatibility)
