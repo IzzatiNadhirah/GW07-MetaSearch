@@ -9,18 +9,24 @@ session_start();
 require_once 'config/db_connect.php';
 require_once 'sync_engine.php';
 
-// Use both connections
-global $conn_gw07, $conn_mmdb;
+// ✅ FIXED: Get connection from GLOBALS array
+$conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
+
+// ✅ FIXED: Check if connection exists and is valid
+if ($conn === null || !$conn->ping()) {
+    $conn_error = "Database connection is not available.";
+} else {
+    $conn_error = null;
+}
 
 // --------------------------------------------------------------------------
-// CHECK: Is remote database available?
+// CHECK: Is database available?
 // --------------------------------------------------------------------------
-$remote_available = isRemoteDbConnected();
-$remote_error = getRemoteDbError();
+$db_available = ($conn !== null && $conn->ping());
 
-// If remote DB is not available, log it
-if (!$remote_available) {
-    error_log("WARNING: mmdb2026 remote database is not available. Student data will be limited.");
+// If DB is not available, log it
+if (!$db_available) {
+    error_log("WARNING: Database connection is not available. Student data will be limited.");
 }
 
 // --------------------------------------------------------------------------
@@ -28,10 +34,10 @@ if (!$remote_available) {
 // --------------------------------------------------------------------------
 // Get all available groups from vstu for the dropdown
 $allGroups = [];
-if ($remote_available && $conn_mmdb !== null) {
+if ($db_available) {
     try {
         $groupQuery = "SELECT DISTINCT group_no FROM vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
-        $groupResult = $conn_mmdb->query($groupQuery);
+        $groupResult = $conn->query($groupQuery);
         if ($groupResult) {
             while ($row = $groupResult->fetch_assoc()) {
                 $allGroups[] = $row['group_no'];
@@ -72,25 +78,25 @@ $syncStatus = "Success";
 $syncDetails = ['synced' => 0, 'skipped' => 0];
 
 try {
-    $syncDetails = syncPlatformData($targetRepository, $conn_gw07);
+    $syncDetails = syncPlatformData($targetRepository, $conn);
 } catch (Exception $e) {
     $syncStatus = "Error: " . $e->getMessage();
 }
 
 // --------------------------------------------------------------------------
-// 3. Get Group Members from mmdb2026.vstu (Remote Database)
+// 3. Get Group Members from vstu
 //    SELECT * to fetch all columns including photoStu, docStu, audioStu, videoStu
-//    Only runs if remote database is available and a group is selected
+//    Only runs if database is available and a group is selected
 // --------------------------------------------------------------------------
 $members = [];
 $error_message = null;
 
-// Check if remote connection exists AND a group is selected before querying
-if ($remote_available && $conn_mmdb !== null && !empty($group)) {
+// Check if connection exists AND a group is selected before querying
+if ($db_available && !empty($group)) {
     try {
         $memberSql = "SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC";
         
-        if ($stmt = $conn_mmdb->prepare($memberSql)) {
+        if ($stmt = $conn->prepare($memberSql)) {
             $stmt->bind_param("s", $group);
             if ($stmt->execute()) {
                 $result = $stmt->get_result();
@@ -102,36 +108,35 @@ if ($remote_available && $conn_mmdb !== null && !empty($group)) {
             }
             $stmt->close();
         } else {
-            $error_message = "Failed to prepare member query: " . $conn_mmdb->error;
+            $error_message = "Failed to prepare member query: " . $conn->error;
         }
     } catch (mysqli_sql_exception $e) {
         $error_message = "Database error while fetching members: " . $e->getMessage();
     } catch (Exception $e) {
         $error_message = "Unexpected error: " . $e->getMessage();
     }
-} elseif ($remote_available && $conn_mmdb !== null && empty($group)) {
+} elseif ($db_available && empty($group)) {
     // No group selected - this is not an error, just a user choice
     $error_message = null; // Clear any previous error
 } else {
-    // Remote DB not available - show message with error details
-    $error_message = "Remote database (mmdb2026) is currently unavailable. Please ensure you have network access or contact your administrator.";
-    if ($remote_error) {
-        $error_message .= " Error: " . $remote_error;
-    }
+    // DB not available - show message with error details
+    $error_message = "Database is currently unavailable. Please ensure you have network access or contact your administrator.";
 }
 
 // --------------------------------------------------------------------------
-// 4. Get Dashboard Statistics from gw07.multimedia_asset (Local Database)
-//    This always works since gw07 is local
+// 4. Get Dashboard Statistics from multimedia_asset
+//    This always works since database is connected
 // --------------------------------------------------------------------------
 $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
 
 try {
-    $res = $conn_gw07->query("SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type");
-    if ($res) {
-        while ($row = $res->fetch_assoc()) {
-            $counts[$row['file_type']] = $row['total'];
-            $counts['total'] += $row['total'];
+    if ($db_available) {
+        $res = $conn->query("SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type");
+        if ($res) {
+            while ($row = $res->fetch_assoc()) {
+                $counts[$row['file_type']] = $row['total'];
+                $counts['total'] += $row['total'];
+            }
         }
     }
 } catch (mysqli_sql_exception $e) {
@@ -139,11 +144,11 @@ try {
     error_log("Failed to get asset statistics: " . $e->getMessage());
 }
 
-// Get total students count from mmdb2026.vstu (only if available)
+// Get total students count from vstu (only if available)
 $studentCount = 0;
-if ($remote_available && $conn_mmdb !== null) {
+if ($db_available) {
     try {
-        $studentRes = $conn_mmdb->query("SELECT COUNT(*) as total FROM vstu");
+        $studentRes = $conn->query("SELECT COUNT(*) as total FROM vstu");
         if ($studentRes) {
             $studentCount = $studentRes->fetch_assoc()['total'];
         }
@@ -151,30 +156,24 @@ if ($remote_available && $conn_mmdb !== null) {
         error_log("Failed to get student count: " . $e->getMessage());
     }
 } else {
-    // If remote DB not available, show a placeholder message
+    // If DB not available, show a placeholder message
     $studentCount = 'N/A';
 }
 
-// Get recent uploads from gw07 (with owner name from mmdb2026.vstu if available)
+// Get recent uploads (with owner name from vstu)
 $recentAssets = [];
 try {
-    if ($remote_available && $conn_mmdb !== null) {
+    if ($db_available) {
         $recentSql = "SELECT ma.*, v.full_name AS owner_name 
                       FROM multimedia_asset ma
                       LEFT JOIN vstu v ON ma.matric_number = v.matric_no
                       ORDER BY ma.last_modified DESC 
                       LIMIT 10";
-    } else {
-        // Fallback: owner name not available from remote DB
-        $recentSql = "SELECT ma.*, 'Unknown' AS owner_name 
-                      FROM multimedia_asset ma
-                      ORDER BY ma.last_modified DESC 
-                      LIMIT 10";
-    }
-    $recentRes = $conn_gw07->query($recentSql);
-    if ($recentRes) {
-        while ($row = $recentRes->fetch_assoc()) {
-            $recentAssets[] = $row;
+        $recentRes = $conn->query($recentSql);
+        if ($recentRes) {
+            while ($row = $recentRes->fetch_assoc()) {
+                $recentAssets[] = $row;
+            }
         }
     }
 } catch (mysqli_sql_exception $e) {
@@ -207,8 +206,8 @@ if (!empty($_GET['query'])) {
     $searchPerformed = true;
 }
 
-// Build search query - handle owner name based on remote availability
-if ($remote_available && $conn_mmdb !== null) {
+// Build search query - include owner name from vstu
+if ($db_available) {
     $searchSql = "SELECT ma.*, v.full_name AS owner_name 
                   FROM multimedia_asset ma
                   LEFT JOIN vstu v ON ma.matric_number = v.matric_no";
@@ -223,9 +222,9 @@ if (count($whereClauses) > 0) {
 
 $searchSql .= " ORDER BY ma.last_modified DESC LIMIT 15";
 
-if ($searchPerformed) {
+if ($searchPerformed && $db_available) {
     try {
-        $stmt = $conn_gw07->prepare($searchSql);
+        $stmt = $conn->prepare($searchSql);
         if ($stmt) {
             if (!empty($searchParams)) {
                 $stmt->bind_param($searchTypes, ...$searchParams);
@@ -240,7 +239,7 @@ if ($searchPerformed) {
             }
             $stmt->close();
         } else {
-            error_log("Search query preparation failed: " . $conn_gw07->error);
+            error_log("Search query preparation failed: " . $conn->error);
         }
     } catch (mysqli_sql_exception $e) {
         error_log("Search error: " . $e->getMessage());
@@ -501,15 +500,12 @@ if ($searchPerformed) {
                 </div>
             </header>
 
-            <!-- Remote Database Warning Banner -->
-            <?php if (!$remote_available): ?>
+            <!-- Database Warning Banner -->
+            <?php if (!$db_available): ?>
                 <div class="warning-banner">
                     <i class="fa-solid fa-triangle-exclamation me-2"></i>
-                    <strong>Notice:</strong> Remote database (mmdb2026) is currently unavailable. 
+                    <strong>Notice:</strong> Database is currently unavailable. 
                     Student data will be limited until connection is restored.
-                    <?php if ($remote_error): ?>
-                        <br><small>Error: <?php echo htmlspecialchars($remote_error); ?></small>
-                    <?php endif; ?>
                 </div>
             <?php endif; ?>
 
@@ -590,9 +586,9 @@ if ($searchPerformed) {
                         <i class="fa-solid fa-user-slash me-2"></i>
                         <?php if (empty($group)): ?>
                             Please select a group from the dropdown above.
-                        <?php elseif (!$remote_available): ?>
+                        <?php elseif (!$db_available): ?>
                             No members found for group "<?php echo htmlspecialchars($group); ?>"
-                            <br><small>(Remote database connection unavailable)</small>
+                            <br><small>(Database connection unavailable)</small>
                         <?php else: ?>
                             No members found for group "<?php echo htmlspecialchars($group); ?>"
                         <?php endif; ?>
@@ -799,7 +795,7 @@ SCRIPTS
     console.log('Group: <?php echo htmlspecialchars($group) ?: 'None selected'; ?>');
     console.log('Total Members: <?php echo count($members); ?>');
     console.log('Total Assets: <?php echo $counts['total']; ?>');
-    console.log('Remote DB Available: <?php echo $remote_available ? 'Yes' : 'No'; ?>');
+    console.log('Database Available: <?php echo $db_available ? 'Yes' : 'No'; ?>');
 </script>
 
 </body>
