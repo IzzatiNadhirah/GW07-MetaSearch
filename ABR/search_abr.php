@@ -36,11 +36,15 @@ try {
     $db_available = isDbConnected();
 
     // Base query: join video_metadata for resolution/duration
-    // Use vstu for owner names (now in same database)
+    // Query: SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
+    //        FROM multimedia_asset a
+    //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+    //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
+    //        WHERE a.file_size_kb <= ?
     $sql = "SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
             FROM multimedia_asset a
             LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-            LEFT JOIN vstu v ON a.matric_number = v.matric_no
+            LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
             WHERE a.file_size_kb <= ?";
 
     $types  = "d";
