@@ -177,6 +177,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     <p><strong>File:</strong> ${escapeHtml(asset.file_name)}</p>
                     <p><strong>Size:</strong> ${fileSizeMB} MB</p>
                     <p><strong>Owner:</strong> ${escapeHtml(ownerName)}</p>
+                    <!-- Student Information from vstu table -->
+                    ${asset.full_name ? `<p><strong>Student:</strong> ${escapeHtml(asset.full_name)}</p>` : ''}
+                    ${asset.matric_no ? `<p><strong>Matric:</strong> ${escapeHtml(asset.matric_no)}</p>` : ''}
+                    ${asset.group_no ? `<p><strong>Group:</strong> ${escapeHtml(asset.group_no)}</p>` : ''}
+                    ${asset.phone_no ? `<p><strong>Phone:</strong> ${escapeHtml(asset.phone_no)}</p>` : ''}
+                    ${asset.life_motto ? `<p><strong>Motto:</strong> "${escapeHtml(asset.life_motto)}"</p>` : ''}
                     <p><strong>Resolution:</strong> ${displayResolution}</p>
                     <p><strong>Duration:</strong> ${displayDuration !== 'N/A' ? displayDuration + 's' : 'N/A'}</p>
                     ${asset.dominant_color ? `<p><strong>Color:</strong> <span style="display:inline-block;width:20px;height:20px;background:${escapeHtml(asset.dominant_color)};border-radius:4px;vertical-align:middle;border:1px solid #333;"></span> ${escapeHtml(asset.dominant_color)}</p>` : ''}
