@@ -7,6 +7,7 @@
 // ==========================================================================
 
 require_once __DIR__ . '/../config/db_connect.php';
+require_once __DIR__ . '/../config/db_queries.php';
 
 // ✅ FIXED: Get connection from GLOBALS array
 $conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
@@ -27,30 +28,7 @@ $query_term = isset($_GET['q']) ? trim($_GET['q']) : '';
 // Suggested tags: pull a handful of distinct tags from text_metadata so users
 // have something to click instead of guessing keywords cold.
 // --------------------------------------------------------------------------
-$suggestedTags = [];
-try {
-    if ($conn !== null) {
-        $tagResult = $conn->query("SELECT tags FROM text_metadata WHERE tags IS NOT NULL AND tags <> '' LIMIT 50");
-        if ($tagResult) {
-            $seen = [];
-            while ($row = $tagResult->fetch_assoc()) {
-                // tags column stores comma-separated values (e.g. "nature,travel,sunset")
-                foreach (explode(',', $row['tags']) as $tag) {
-                    $tag = trim($tag);
-                    if ($tag !== '' && !isset($seen[$tag])) {
-                        $seen[$tag] = true;
-                        $suggestedTags[] = $tag;
-                    }
-                    if (count($suggestedTags) >= 8) break 2;
-                }
-            }
-        }
-    }
-} catch (mysqli_sql_exception $e) {
-    // Non-critical — suggestions are a convenience feature, so fail quietly here
-    // and just show no suggestions rather than breaking the whole page.
-    $suggestedTags = [];
-}
+$suggestedTags = getSuggestedTags($conn);
 
 // --------------------------------------------------------------------------
 // Main search
@@ -64,69 +42,18 @@ if (isset($_GET['search'])) {
         $error_message = $conn_error;
     } else {
         try {
-            // ✅ FIXED: Define $sql outside the conditional blocks
-            $sql = "";
+            // Execute TBR search using centralized function
+            $result = tbrSearch($conn, $query_term);
             
-            // Combines two retrieval techniques over the text metadata:
-            //  - FULLTEXT MATCH AGAINST on keywords/tags/description (uses the
-            //    idx_tbr_search index defined in the schema)
-            //  - LIKE on title/captions (not covered by the fulltext index)
-            // A row matching either counts as a hit; fulltext hits are ranked
-            // higher via the relevance score.
-            
-            // Query: SELECT ma.*, v.*, tm.keywords, tm.tags, tm.captions, tm.description,
-            //        MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-            //        FROM multimedia_asset ma
-            //        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-            //        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-            //        WHERE [conditions] ORDER BY relevance DESC, ma.upload_date DESC
-            // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
-            // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
-            // audioStu, audioStu_date, videoStu, videoStu_date
-            $sql = "
-            SELECT
-                ma.*,
-                v.*,
-                tm.keywords,
-                tm.tags,
-                tm.captions,
-                tm.description,
-                MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-            FROM multimedia_asset ma
-            JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-            LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-            WHERE
-                MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
-                OR ma.title LIKE ?
-                OR tm.captions LIKE ?
-            ORDER BY relevance DESC, ma.upload_date DESC
-            ";
-
-            // ✅ $sql is now always defined before this point
-            if (!empty($sql)) {
-                $stmt = mysqli_prepare($conn, $sql);
-                if ($stmt) {
-                    $likeTerm = '%' . $query_term . '%';
-                    mysqli_stmt_bind_param($stmt, "ssss", $query_term, $query_term, $likeTerm, $likeTerm);
-                    if (mysqli_stmt_execute($stmt)) {
-                        $result = mysqli_stmt_get_result($stmt);
-                        if ($result === false) {
-                            $error_message = "Query executed but failed to retrieve results.";
-                        }
-                    } else {
-                        $error_message = "Query execution failed: " . mysqli_stmt_error($stmt);
-                    }
-                    mysqli_stmt_close($stmt);
-                } else {
-                    $error_message = "Failed to prepare search query.";
-                }
-            } else {
-                $error_message = "Failed to build search query.";
+            if ($result === false) {
+                $error_message = "Failed to execute search query.";
             }
         } catch (mysqli_sql_exception $e) {
             // MATCH AGAINST can throw for very short search terms depending on
             // ft_min_word_len — surface this clearly instead of a raw fatal error.
             $error_message = "Search failed: " . $e->getMessage();
+        } catch (Exception $e) {
+            $error_message = "Error: " . $e->getMessage();
         }
     }
 }
