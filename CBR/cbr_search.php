@@ -8,6 +8,7 @@
 
 // UPDATED: use the single shared connection file (was: include 'db.php')
 require_once __DIR__ . '/../config/db_connect.php';
+require_once __DIR__ . '/../config/db_queries.php';
 
 // ✅ FIXED: Get connection from GLOBALS array
 $conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
@@ -45,144 +46,79 @@ if (isset($_GET['search'])) {
     elseif ($conn_error !== null) {
         $error_message = $conn_error;
     } else {
-
-        switch ($type) {
-            case "image":
-                // Search by dominant color (LIKE for partial match)
-                // NEW: prepared statement — previous version concatenated $value directly into SQL (SQL injection risk)
-                $sql = "
-                SELECT
-                ma.title,
-                ma.file_name,
-                ma.file_path,
-                im.width,
-                im.height,
-                im.resolution,
-                im.dominant_color
-                FROM multimedia_asset ma
-                JOIN image_metadata im
-                ON ma.asset_id = im.asset_id
-                WHERE im.dominant_color LIKE ?
-                ";
-                $stmt = mysqli_prepare($conn, $sql);
-                if ($stmt) {
-                    $likeValue = '%' . $value . '%';
-                    mysqli_stmt_bind_param($stmt, "s", $likeValue);
-                } else {
-                    $error_message = "Failed to prepare search query.";
-                }
-                break;
-
-            case "video":
-                // NEW: validate that value is numeric before using it as a duration filter
-                if (!is_numeric($value) || (int)$value < 0) {
-                    $error_message = "Duration must be a positive number (in minutes).";
+        try {
+            switch ($type) {
+                case "image":
+                    // Search by dominant color (LIKE for partial match)
+                    $rows = cbrImageSearch($conn, $value);
+                    $result = $rows;
                     break;
-                }
-                // Convert minutes to seconds for comparison
-                $seconds = (int)$value * 60;
-                $sql = "
-                SELECT
-                ma.title,
-                ma.file_name,
-                ma.file_path,
-                vm.resolution,
-                vm.duration_seconds,
-                CONCAT(FLOOR(vm.duration_seconds / 60), 'm ', vm.duration_seconds % 60, 's') as duration_formatted
-                FROM multimedia_asset ma
-                JOIN video_metadata vm
-                ON ma.asset_id = vm.asset_id
-                WHERE vm.duration_seconds >= ?
-                ORDER BY vm.duration_seconds DESC
-                ";
-                $stmt = mysqli_prepare($conn, $sql);
-                if ($stmt) {
-                    mysqli_stmt_bind_param($stmt, "i", $seconds);
-                } else {
-                    $error_message = "Failed to prepare search query.";
-                }
-                break;
 
-            case "audio":
-                // NEW: validate that value is numeric before using it as a duration filter
-                if (!is_numeric($value) || (int)$value < 0) {
-                    $error_message = "Duration must be a positive number (in minutes).";
+                case "video":
+                    // Validate that value is numeric before using it as a duration filter
+                    if (!is_numeric($value) || (int)$value < 0) {
+                        $error_message = "Duration must be a positive number (in minutes).";
+                        break;
+                    }
+                    // Convert minutes to seconds for comparison
+                    $seconds = (int)$value * 60;
+                    $rows = cbrVideoSearch($conn, $seconds);
+                    // Convert array to result set format for display
+                    if (!empty($rows)) {
+                        // Create a temporary result set for display
+                        $result = $rows;
+                    }
                     break;
-                }
-                // Convert minutes to seconds for comparison
-                $seconds = (int)$value * 60;
-                $sql = "
-                SELECT
-                ma.title,
-                ma.file_name,
-                ma.file_path,
-                am.duration_seconds,
-                CONCAT(FLOOR(am.duration_seconds / 60), 'm ', am.duration_seconds % 60, 's') as duration_formatted,
-                am.bitrate_kbps,
-                am.audio_format
-                FROM multimedia_asset ma
-                JOIN audio_metadata am
-                ON ma.asset_id = am.asset_id
-                WHERE am.duration_seconds >= ?
-                ORDER BY am.duration_seconds DESC
-                ";
-                $stmt = mysqli_prepare($conn, $sql);
-                if ($stmt) {
-                    mysqli_stmt_bind_param($stmt, "i", $seconds);
-                } else {
-                    $error_message = "Failed to prepare search query.";
-                }
-                break;
 
-            case "document":
-                // NEW: validate that value is numeric before using it as a page count filter
-                if (!is_numeric($value) || (int)$value < 0) {
-                    $error_message = "Page count must be a positive number.";
+                case "audio":
+                    // Validate that value is numeric before using it as a duration filter
+                    if (!is_numeric($value) || (int)$value < 0) {
+                        $error_message = "Duration must be a positive number (in minutes).";
+                        break;
+                    }
+                    // Convert minutes to seconds for comparison
+                    $seconds = (int)$value * 60;
+                    $rows = cbrAudioSearch($conn, $seconds);
+                    if (!empty($rows)) {
+                        $result = $rows;
+                    }
                     break;
-                }
-                // Search by page count
-                $pageCount = (int)$value;
-                $sql = "
-                SELECT
-                ma.title,
-                ma.file_name,
-                ma.file_path,
-                dm.page_count,
-                dm.is_searchable
-                FROM multimedia_asset ma
-                JOIN document_metadata dm
-                ON ma.asset_id = dm.asset_id
-                WHERE dm.page_count >= ?
-                ORDER BY dm.page_count DESC
-                ";
-                $stmt = mysqli_prepare($conn, $sql);
-                if ($stmt) {
-                    mysqli_stmt_bind_param($stmt, "i", $pageCount);
-                } else {
-                    $error_message = "Failed to prepare search query.";
-                }
-                break;
 
-            // NEW: default case guards against unexpected $type values reaching mysqli_query with an undefined $sql
-            default:
-                $error_message = "Unsupported media type.";
-                break;
-        }
+                case "document":
+                    // Validate that value is numeric before using it as a page count filter
+                    if (!is_numeric($value) || (int)$value < 0) {
+                        $error_message = "Page count must be a positive number.";
+                        break;
+                    }
+                    // Search by page count
+                    $pageCount = (int)$value;
+                    $rows = cbrDocumentSearch($conn, $pageCount);
+                    if (!empty($rows)) {
+                        $result = $rows;
+                    }
+                    break;
 
-        // NEW: execute the prepared statement (if one was successfully built) and capture the result set
-        if (!$error_message && isset($stmt) && $stmt) {
-            if (mysqli_stmt_execute($stmt)) {
-                $result = mysqli_stmt_get_result($stmt);
-                if ($result === false) {
-                    $error_message = "Query executed but failed to retrieve results.";
-                }
-            } else {
-                $error_message = "Query execution failed: " . mysqli_stmt_error($stmt);
+                default:
+                    $error_message = "Unsupported media type.";
+                    break;
             }
-            mysqli_stmt_close($stmt);
+
+            // Check if any results were found
+            if (!$error_message && empty($result)) {
+                $result = []; // Empty array for no results
+            }
+
+        } catch (mysqli_sql_exception $e) {
+            $error_message = "Database error: " . $e->getMessage();
+        } catch (Exception $e) {
+            $error_message = "Error: " . $e->getMessage();
         }
     }
 }
+
+// Convert result array to mysqli_result-like object for display
+// Since we're using arrays, we need to handle the display differently
+// The display code below will work with both mysqli_result and array
 
 function getFeatureInfo($type) {
     $info = [
@@ -219,6 +155,30 @@ function getFeatureInfo($type) {
 }
 
 $featureInfo = getFeatureInfo($selected_type);
+
+// Helper function to get row count from result (works with both array and mysqli_result)
+function getResultCount($result) {
+    if (is_array($result)) {
+        return count($result);
+    } elseif (is_object($result) && method_exists($result, 'num_rows')) {
+        return $result->num_rows;
+    }
+    return 0;
+}
+
+// Helper function to fetch rows from result (works with both array and mysqli_result)
+function fetchResultRows($result) {
+    if (is_array($result)) {
+        return $result;
+    } elseif (is_object($result) && method_exists($result, 'fetch_assoc')) {
+        $rows = [];
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        return $rows;
+    }
+    return [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -325,7 +285,7 @@ $featureInfo = getFeatureInfo($selected_type);
             <div class="results-section">
                 <div class="results-header">
                     <span class="results-count">
-                        Found <strong><?php echo $result ? mysqli_num_rows($result) : 0; ?></strong> result(s)
+                        Found <strong><?php echo getResultCount($result); ?></strong> result(s)
                     </span>
                     <span class="results-info">
                         Type: <span><?php echo htmlspecialchars(ucfirst($selected_type)); ?></span> |
@@ -333,12 +293,17 @@ $featureInfo = getFeatureInfo($selected_type);
                     </span>
                 </div>
 
-                <?php if ($result && mysqli_num_rows($result) > 0): ?>
+                <?php if (!empty($result) && getResultCount($result) > 0): ?>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
-                                    <?php while ($field = mysqli_fetch_field($result)): ?>
+                                    <?php 
+                                    $displayRows = fetchResultRows($result);
+                                    if (!empty($displayRows)):
+                                        $firstRow = $displayRows[0];
+                                        foreach ($firstRow as $key => $value): 
+                                    ?>
                                         <th>
                                             <?php
                                             $labels = [
@@ -356,38 +321,37 @@ $featureInfo = getFeatureInfo($selected_type);
                                                 'page_count' => 'Pages',
                                                 'is_searchable' => 'Searchable'
                                             ];
-                                            echo htmlspecialchars($labels[$field->name] ?? $field->name);
+                                            echo htmlspecialchars($labels[$key] ?? $key);
                                             ?>
                                         </th>
-                                    <?php endwhile; ?>
+                                    <?php endforeach; ?>
+                                    <?php endif; ?>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php
-                                mysqli_data_seek($result, 0);
-                                while ($row = mysqli_fetch_assoc($result)):
-                                ?>
-                                    <tr>
-                                        <?php foreach ($row as $key => $data): ?>
-                                            <td>
-                                                <?php
-                                                if ($key == 'dominant_color' && !empty($data)) {
-                                                    // NEW: escape the color value before echoing raw, and again when used in the style attribute
-                                                    echo htmlspecialchars($data) . ' <span class="color-preview" style="background:' . htmlspecialchars($data) . ';"></span>';
-                                                } elseif ($key == 'is_searchable') {
-                                                    echo $data ? '<span class="badge badge-yes">Yes</span>' : '<span class="badge badge-no">No</span>';
-                                                } elseif ($key == 'duration_formatted') {
-                                                    echo htmlspecialchars($data);
-                                                } elseif ($key == 'duration_seconds') {
-                                                    echo htmlspecialchars($data) . 's';
-                                                } else {
-                                                    echo htmlspecialchars($data);
-                                                }
-                                                ?>
-                                            </td>
-                                        <?php endforeach; ?>
-                                    </tr>
-                                <?php endwhile; ?>
+                                <?php if (!empty($displayRows)): ?>
+                                    <?php foreach ($displayRows as $row): ?>
+                                        <tr>
+                                            <?php foreach ($row as $key => $data): ?>
+                                                <td>
+                                                    <?php
+                                                    if ($key == 'dominant_color' && !empty($data)) {
+                                                        echo htmlspecialchars($data) . ' <span class="color-preview" style="background:' . htmlspecialchars($data) . ';"></span>';
+                                                    } elseif ($key == 'is_searchable') {
+                                                        echo $data ? '<span class="badge badge-yes">Yes</span>' : '<span class="badge badge-no">No</span>';
+                                                    } elseif ($key == 'duration_formatted') {
+                                                        echo htmlspecialchars($data);
+                                                    } elseif ($key == 'duration_seconds') {
+                                                        echo htmlspecialchars($data) . 's';
+                                                    } else {
+                                                        echo htmlspecialchars($data);
+                                                    }
+                                                    ?>
+                                                </td>
+                                            <?php endforeach; ?>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
