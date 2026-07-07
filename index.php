@@ -36,6 +36,7 @@ if (!$db_available) {
 $allGroups = [];
 if ($db_available) {
     try {
+        // Query: SELECT DISTINCT group_no FROM vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC
         $groupQuery = "SELECT DISTINCT group_no FROM vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
         $groupResult = $conn->query($groupQuery);
         if ($groupResult) {
@@ -85,8 +86,10 @@ try {
 
 // --------------------------------------------------------------------------
 // 3. Get Group Members from vstu
-//    SELECT * to fetch all columns including photoStu, docStu, audioStu, videoStu
-//    Only runs if database is available and a group is selected
+//    Query: SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC
+//    Fetches all columns: id, matric_no, full_name, phone_no, group_no, 
+//    life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+//    audioStu, audioStu_date, videoStu, videoStu_date
 // --------------------------------------------------------------------------
 $members = [];
 $error_message = null;
@@ -94,6 +97,7 @@ $error_message = null;
 // Check if connection exists AND a group is selected before querying
 if ($db_available && !empty($group)) {
     try {
+        // Query: SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC
         $memberSql = "SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC";
         
         if ($stmt = $conn->prepare($memberSql)) {
@@ -125,12 +129,17 @@ if ($db_available && !empty($group)) {
 
 // --------------------------------------------------------------------------
 // 4. Get Dashboard Statistics from multimedia_asset
-//    This always works since database is connected
+//    Query: SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type
+//    Also: SELECT COUNT(*) as total FROM vstu (for total students)
+//    Also: SELECT ma.*, v.full_name AS owner_name FROM multimedia_asset ma
+//          LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//          ORDER BY ma.last_modified DESC LIMIT 10
 // --------------------------------------------------------------------------
 $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
 
 try {
     if ($db_available) {
+        // Query: SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type
         $res = $conn->query("SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type");
         if ($res) {
             while ($row = $res->fetch_assoc()) {
@@ -144,7 +153,8 @@ try {
     error_log("Failed to get asset statistics: " . $e->getMessage());
 }
 
-// Get total students count from vstu (only if available)
+// Get total students count from vstu
+// Query: SELECT COUNT(*) as total FROM vstu
 $studentCount = 0;
 if ($db_available) {
     try {
@@ -160,7 +170,11 @@ if ($db_available) {
     $studentCount = 'N/A';
 }
 
-// Get recent uploads (with owner name from vstu)
+// Get recent uploads with owner name from vstu
+// Query: SELECT ma.*, v.full_name AS owner_name 
+//        FROM multimedia_asset ma
+//        LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//        ORDER BY ma.last_modified DESC LIMIT 10
 $recentAssets = [];
 try {
     if ($db_available) {
@@ -182,6 +196,10 @@ try {
 
 // --------------------------------------------------------------------------
 // 5. Handle Search (ABR + TBR combined)
+//    Query: SELECT ma.*, v.full_name AS owner_name 
+//           FROM multimedia_asset ma
+//           LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//           WHERE [filters] ORDER BY ma.last_modified DESC LIMIT 15
 // --------------------------------------------------------------------------
 $whereClauses = [];
 $searchParams = [];
@@ -207,6 +225,10 @@ if (!empty($_GET['query'])) {
 }
 
 // Build search query - include owner name from vstu
+// Query: SELECT ma.*, v.full_name AS owner_name 
+//        FROM multimedia_asset ma
+//        LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//        WHERE [conditions] ORDER BY ma.last_modified DESC LIMIT 15
 if ($db_available) {
     $searchSql = "SELECT ma.*, v.full_name AS owner_name 
                   FROM multimedia_asset ma
