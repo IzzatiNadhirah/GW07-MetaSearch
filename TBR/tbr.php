@@ -74,24 +74,27 @@ if (isset($_GET['search'])) {
             // A row matching either counts as a hit; fulltext hits are ranked
             // higher via the relevance score.
             
-            // Use vstu for owner names (now in same database)
+            // Query: SELECT ma.*, v.*, tm.keywords, tm.tags, tm.captions, tm.description,
+            //        MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
+            //        FROM multimedia_asset ma
+            //        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
+            //        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
+            //        WHERE [conditions] ORDER BY relevance DESC, ma.upload_date DESC
+            // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
+            // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+            // audioStu, audioStu_date, videoStu, videoStu_date
             $sql = "
             SELECT
-                ma.asset_id,
-                ma.title,
-                ma.file_name,
-                ma.file_path,
-                ma.file_type,
-                ma.upload_date,
+                ma.*,
+                v.*,
                 tm.keywords,
                 tm.tags,
                 tm.captions,
                 tm.description,
-                v.full_name AS owner_name,
                 MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
             FROM multimedia_asset ma
             JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-            LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+            LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
             WHERE
                 MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
                 OR ma.title LIKE ?
@@ -229,7 +232,7 @@ if (isset($_GET['search'])) {
                                         <td><?php echo htmlspecialchars($row['title']); ?></td>
                                         <td><?php echo htmlspecialchars($row['file_name']); ?></td>
                                         <td><span class="badge badge-yes"><?php echo htmlspecialchars(strtoupper($row['file_type'])); ?></span></td>
-                                        <td><?php echo htmlspecialchars($row['owner_name'] ?? 'Unknown'); ?></td>
+                                        <td><?php echo htmlspecialchars($row['full_name'] ?? 'Unknown'); ?></td>
                                         <td><?php echo htmlspecialchars($row['tags'] ?? '-'); ?></td>
                                         <td><?php echo htmlspecialchars($row['keywords'] ?? '-'); ?></td>
                                         <td><?php echo htmlspecialchars($row['upload_date']); ?></td>
