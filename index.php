@@ -7,6 +7,7 @@
 session_start();
 
 require_once 'config/db_connect.php';
+require_once 'config/db_queries.php';
 require_once 'sync_engine.php';
 
 // ✅ FIXED: Get connection from GLOBALS array
@@ -35,18 +36,7 @@ if (!$db_available) {
 // Get all available groups from mmdb2026.vstu for the dropdown
 $allGroups = [];
 if ($db_available) {
-    try {
-        // Query: SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC
-        $groupQuery = "SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
-        $groupResult = $conn->query($groupQuery);
-        if ($groupResult) {
-            while ($row = $groupResult->fetch_assoc()) {
-                $allGroups[] = $row['group_no'];
-            }
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("Failed to get groups: " . $e->getMessage());
-    }
+    $allGroups = getGroups($conn);
 }
 
 // Get selected group from POST or GET
@@ -86,186 +76,51 @@ try {
 
 // --------------------------------------------------------------------------
 // 3. Get Group Members from mmdb2026.vstu
-//    Query: SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC
-//    Fetches all columns: id, matric_no, full_name, phone_no, group_no, 
-//    life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
-//    audioStu, audioStu_date, videoStu, videoStu_date
 // --------------------------------------------------------------------------
 $members = [];
 $error_message = null;
 
-// Check if connection exists AND a group is selected before querying
 if ($db_available && !empty($group)) {
-    try {
-        // Query: SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC
-        $memberSql = "SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC";
-        
-        if ($stmt = $conn->prepare($memberSql)) {
-            $stmt->bind_param("s", $group);
-            if ($stmt->execute()) {
-                $result = $stmt->get_result();
-                while ($row = $result->fetch_assoc()) {
-                    $members[] = $row;
-                }
-            } else {
-                $error_message = "Failed to execute member query: " . $stmt->error;
-            }
-            $stmt->close();
-        } else {
-            $error_message = "Failed to prepare member query: " . $conn->error;
-        }
-    } catch (mysqli_sql_exception $e) {
-        $error_message = "Database error while fetching members: " . $e->getMessage();
-    } catch (Exception $e) {
-        $error_message = "Unexpected error: " . $e->getMessage();
+    $members = getGroupMembers($conn, $group);
+    if (empty($members)) {
+        $error_message = "No members found for group: " . htmlspecialchars($group);
     }
 } elseif ($db_available && empty($group)) {
-    // No group selected - this is not an error, just a user choice
-    $error_message = null; // Clear any previous error
+    $error_message = null;
 } else {
-    // DB not available - show message with error details
     $error_message = "Database is currently unavailable. Please ensure you have network access or contact your administrator.";
 }
 
 // --------------------------------------------------------------------------
-// 4. Get Dashboard Statistics from multimedia_asset
-//    Query: SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type
-//    Also: SELECT COUNT(*) as total FROM mmdb2026.vstu (for total students)
-//    Also: SELECT ma.*, v.full_name AS owner_name FROM multimedia_asset ma
-//          LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-//          ORDER BY ma.last_modified DESC LIMIT 10
+// 4. Get Dashboard Statistics
 // --------------------------------------------------------------------------
 $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
-
-try {
-    if ($db_available) {
-        // Query: SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type
-        $res = $conn->query("SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type");
-        if ($res) {
-            while ($row = $res->fetch_assoc()) {
-                $counts[$row['file_type']] = $row['total'];
-                $counts['total'] += $row['total'];
-            }
-        }
-    }
-} catch (mysqli_sql_exception $e) {
-    // Log error but continue - stats will show zeros
-    error_log("Failed to get asset statistics: " . $e->getMessage());
-}
-
-// Get total students count from mmdb2026.vstu
-// Query: SELECT COUNT(*) as total FROM mmdb2026.vstu
 $studentCount = 0;
-if ($db_available) {
-    try {
-        $studentRes = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu");
-        if ($studentRes) {
-            $studentCount = $studentRes->fetch_assoc()['total'];
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("Failed to get student count: " . $e->getMessage());
-    }
-} else {
-    // If DB not available, show a placeholder message
-    $studentCount = 'N/A';
-}
-
-// Get recent uploads with owner name from mmdb2026.vstu
-// Query: SELECT ma.*, v.full_name AS owner_name 
-//        FROM multimedia_asset ma
-//        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-//        ORDER BY ma.last_modified DESC LIMIT 10
 $recentAssets = [];
-try {
-    if ($db_available) {
-        $recentSql = "SELECT ma.*, v.full_name AS owner_name 
-                      FROM multimedia_asset ma
-                      LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-                      ORDER BY ma.last_modified DESC 
-                      LIMIT 10";
-        $recentRes = $conn->query($recentSql);
-        if ($recentRes) {
-            while ($row = $recentRes->fetch_assoc()) {
-                $recentAssets[] = $row;
-            }
-        }
-    }
-} catch (mysqli_sql_exception $e) {
-    error_log("Failed to get recent assets: " . $e->getMessage());
+
+if ($db_available) {
+    $counts = getAssetStatistics($conn);
+    $studentCount = getStudentCount($conn);
+    $recentAssets = getRecentUploads($conn);
+} else {
+    $studentCount = 'N/A';
 }
 
 // --------------------------------------------------------------------------
 // 5. Handle Search (ABR + TBR combined)
-//    Query: SELECT ma.*, v.full_name AS owner_name 
-//           FROM multimedia_asset ma
-//           LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-//           WHERE [filters] ORDER BY ma.last_modified DESC LIMIT 15
 // --------------------------------------------------------------------------
-$whereClauses = [];
-$searchParams = [];
-$searchTypes = "";
-$searchPerformed = false;
 $searchResults = [];
+$searchPerformed = false;
 
-if (!empty($_GET['file_type'])) {
-    $whereClauses[] = "ma.file_type = ?";
-    $searchParams[] = $_GET['file_type'];
-    $searchTypes .= "s";
-    $searchPerformed = true;
-}
-
-if (!empty($_GET['query'])) {
-    $searchTerm = '%' . $_GET['query'] . '%';
-    $whereClauses[] = "(ma.file_name LIKE ? OR ma.title LIKE ? OR ma.matric_number LIKE ?)";
-    $searchParams[] = $searchTerm;
-    $searchParams[] = $searchTerm;
-    $searchParams[] = $searchTerm;
-    $searchTypes .= "sss";
-    $searchPerformed = true;
-}
-
-// Build search query - include owner name from mmdb2026.vstu
-// Query: SELECT ma.*, v.full_name AS owner_name 
-//        FROM multimedia_asset ma
-//        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-//        WHERE [conditions] ORDER BY ma.last_modified DESC LIMIT 15
 if ($db_available) {
-    $searchSql = "SELECT ma.*, v.full_name AS owner_name 
-                  FROM multimedia_asset ma
-                  LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no";
+    $fileType = $_GET['file_type'] ?? '';
+    $query = $_GET['query'] ?? '';
+    $searchData = searchAssets($conn, $fileType, $query, $db_available);
+    $searchResults = $searchData['results'];
+    $searchPerformed = $searchData['performed'];
 } else {
-    $searchSql = "SELECT ma.*, 'Unknown' AS owner_name 
-                  FROM multimedia_asset ma";
-}
-
-if (count($whereClauses) > 0) {
-    $searchSql .= " WHERE " . implode(" AND ", $whereClauses);
-}
-
-$searchSql .= " ORDER BY ma.last_modified DESC LIMIT 15";
-
-if ($searchPerformed && $db_available) {
-    try {
-        $stmt = $conn->prepare($searchSql);
-        if ($stmt) {
-            if (!empty($searchParams)) {
-                $stmt->bind_param($searchTypes, ...$searchParams);
-            }
-            if ($stmt->execute()) {
-                $result = $stmt->get_result();
-                while ($row = $result->fetch_assoc()) {
-                    $searchResults[] = $row;
-                }
-            } else {
-                error_log("Search query execution failed: " . $stmt->error);
-            }
-            $stmt->close();
-        } else {
-            error_log("Search query preparation failed: " . $conn->error);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("Search error: " . $e->getMessage());
-    }
+    $searchResults = [];
+    $searchPerformed = false;
 }
 ?>
 <!DOCTYPE html>
@@ -299,10 +154,36 @@ if ($searchPerformed && $db_available) {
             border-radius: 8px;
             padding: 15px 20px;
             transition: all 0.2s;
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
         }
         .member-card:hover {
             border-color: var(--accent);
             transform: translateY(-2px);
+        }
+        .member-card .avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: var(--bg-primary);
+            border: 2px solid var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            color: var(--accent);
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+        .member-card .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .member-card .info {
+            flex: 1;
+            min-width: 0;
         }
         .member-card .name {
             color: #fff;
@@ -328,6 +209,17 @@ if ($searchPerformed && $db_available) {
         .member-card .media-icons .badge {
             font-size: 0.65rem;
             padding: 3px 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+        .member-card .media-icons .badge:hover {
+            transform: scale(1.05);
+            opacity: 0.9;
+        }
+        .member-card .media-icons .badge a {
+            color: inherit;
+            text-decoration: none;
         }
         .sync-status {
             font-size: 0.85rem;
@@ -337,6 +229,14 @@ if ($searchPerformed && $db_available) {
         .stat-icon {
             font-size: 2rem;
             opacity: 0.8;
+        }
+        .stat-label {
+            color: #cbd5e1 !important;
+            font-weight: 500;
+        }
+        .stat-value {
+            color: #ffffff !important;
+            font-weight: 700;
         }
         .sidebar .nav-link {
             color: #cbd5e1;
@@ -404,6 +304,20 @@ if ($searchPerformed && $db_available) {
             margin-bottom: 4px;
             display: block;
         }
+
+        /* Card text colors */
+        .card-custom h6 {
+            color: #cbd5e1 !important;
+        }
+        .card-custom h2 {
+            color: #ffffff !important;
+        }
+        .text-muted {
+            color: #94a3b8 !important;
+        }
+        .text-white-50 {
+            color: #94a3b8 !important;
+        }
     </style>
 </head>
 <body>
@@ -460,7 +374,7 @@ if ($searchPerformed && $db_available) {
 
             <hr class="text-secondary">
 
-            <!-- Navigation - REMOVED Dashboard & Database Viewer -->
+            <!-- Navigation -->
             <ul class="nav nav-pills flex-column mt-2">
                 <li class="nav-item">
                     <a href="index.php" class="nav-link active">
@@ -546,43 +460,43 @@ if ($searchPerformed && $db_available) {
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-users text-cyan stat-icon"></i>
-                        <h6 class="text-muted mt-2">Total Students</h6>
-                        <h2 class="fw-bold text-white"><?php echo $studentCount; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Total Students</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $studentCount; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-image text-primary stat-icon"></i>
-                        <h6 class="text-muted mt-2">Images</h6>
-                        <h2 class="fw-bold text-white"><?php echo $counts['image']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Images</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['image']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-music text-warning stat-icon"></i>
-                        <h6 class="text-muted mt-2">Audio</h6>
-                        <h2 class="fw-bold text-white"><?php echo $counts['audio']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Audio</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['audio']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-file-pdf text-danger stat-icon"></i>
-                        <h6 class="text-muted mt-2">Documents</h6>
-                        <h2 class="fw-bold text-white"><?php echo $counts['document']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Documents</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['document']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-video text-success stat-icon"></i>
-                        <h6 class="text-muted mt-2">Videos</h6>
-                        <h2 class="fw-bold text-white"><?php echo $counts['video']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Videos</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['video']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-database text-info stat-icon"></i>
-                        <h6 class="text-muted mt-2">Total Assets</h6>
-                        <h2 class="fw-bold text-white"><?php echo $counts['total']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">Total Assets</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['total']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -620,47 +534,67 @@ if ($searchPerformed && $db_available) {
                         <?php foreach ($members as $member): ?>
                             <div class="col-md-6 col-lg-4">
                                 <div class="member-card">
-                                    <div class="name">
-                                        <i class="fa-solid fa-user-circle text-cyan me-2"></i>
-                                        <?php echo htmlspecialchars(strtoupper($member['full_name'])); ?>
-                                    </div>
-                                    <div class="matric">
-                                        <i class="fa-regular fa-id-card me-1"></i>
-                                        <?php echo htmlspecialchars($member['matric_no']); ?>
-                                    </div>
-                                    <?php if (!empty($member['phone_no'])): ?>
-                                        <div class="text-muted small">
-                                            <i class="fa-solid fa-phone me-1"></i>
-                                            <?php echo htmlspecialchars($member['phone_no']); ?>
-                                        </div>
-                                    <?php endif; ?>
-                                    <?php if (!empty($member['life_motto'])): ?>
-                                        <div class="motto mt-1">
-                                            "<?php echo htmlspecialchars($member['life_motto']); ?>"
-                                        </div>
-                                    <?php endif; ?>
-                                    <!-- Media Icons (Photo, Document, Audio, Video) -->
-                                    <div class="media-icons">
+                                    <!-- Avatar / Profile Picture -->
+                                    <div class="avatar">
                                         <?php if (!empty($member['photoStu'])): ?>
-                                            <span class="badge bg-primary" title="Photo">
-                                                <i class="fa-solid fa-image me-1"></i>Photo
-                                            </span>
+                                            <img src="<?php echo htmlspecialchars($member['photoStu']); ?>" alt="Profile Photo" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\'fa-solid fa-user\'></i>';">
+                                        <?php else: ?>
+                                            <i class="fa-solid fa-user"></i>
                                         <?php endif; ?>
-                                        <?php if (!empty($member['docStu'])): ?>
-                                            <span class="badge bg-danger" title="Document">
-                                                <i class="fa-solid fa-file-pdf me-1"></i>Doc
-                                            </span>
+                                    </div>
+                                    <!-- Student Info -->
+                                    <div class="info">
+                                        <div class="name">
+                                            <?php echo htmlspecialchars(strtoupper($member['full_name'])); ?>
+                                        </div>
+                                        <div class="matric">
+                                            <i class="fa-regular fa-id-card me-1"></i>
+                                            <?php echo htmlspecialchars($member['matric_no']); ?>
+                                        </div>
+                                        <?php if (!empty($member['life_motto'])): ?>
+                                            <div class="motto mt-1">
+                                                "<?php echo htmlspecialchars($member['life_motto']); ?>"
+                                            </div>
                                         <?php endif; ?>
-                                        <?php if (!empty($member['audioStu'])): ?>
-                                            <span class="badge bg-warning" title="Audio">
-                                                <i class="fa-solid fa-music me-1"></i>Audio
-                                            </span>
-                                        <?php endif; ?>
-                                        <?php if (!empty($member['videoStu'])): ?>
-                                            <span class="badge bg-success" title="Video">
-                                                <i class="fa-solid fa-video me-1"></i>Video
-                                            </span>
-                                        <?php endif; ?>
+                                        <!-- Media Icons - Clickable to open media -->
+                                        <div class="media-icons">
+                                            <?php if (!empty($member['photoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($member['photoStu']); ?>" target="_blank" class="badge bg-primary" title="View Photo">
+                                                    <i class="fa-solid fa-image me-1"></i>Photo
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary" title="No Photo Available">
+                                                    <i class="fa-solid fa-image me-1"></i>No Photo
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($member['docStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($member['docStu']); ?>" target="_blank" class="badge bg-danger" title="View Document">
+                                                    <i class="fa-solid fa-file-pdf me-1"></i>Doc
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary" title="No Document Available">
+                                                    <i class="fa-solid fa-file-pdf me-1"></i>No Doc
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($member['audioStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($member['audioStu']); ?>" target="_blank" class="badge bg-warning" title="Play Audio">
+                                                    <i class="fa-solid fa-music me-1"></i>Audio
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary" title="No Audio Available">
+                                                    <i class="fa-solid fa-music me-1"></i>No Audio
+                                                </span>
+                                            <?php endif; ?>
+                                            <?php if (!empty($member['videoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($member['videoStu']); ?>" target="_blank" class="badge bg-success" title="Play Video">
+                                                    <i class="fa-solid fa-video me-1"></i>Video
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary" title="No Video Available">
+                                                    <i class="fa-solid fa-video me-1"></i>No Video
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
