@@ -1,5 +1,7 @@
 <?php
-// sync_engine.php
+// ==========================================================================
+// sync_engine.php - Remote Data Synchronization Engine
+// ==========================================================================
 
 function syncPlatformData($targetUrl, $conn) {
     // 1. Fetch live page HTML source markup
@@ -33,7 +35,7 @@ function syncPlatformData($targetUrl, $conn) {
 
         // Regex expression matches project filenames: type_matric_index.extension
         // Example: p_B032410001_1.jpeg, v_B032410001_1.mp4, etc.
-        if (!preg_match('/^([pavd])_([BM]\d{9})_\1\.(jpeg|jpg|mp3|pdf|mp4)$/i', $filename, $matches)) {
+        if (!preg_match('/^([pavd])_([BM]\d{9})_\d+\.(jpeg|jpg|mp3|pdf|mp4)$/i', $filename, $matches)) {
             $skippedCount++;
             continue; // not a recognized project filename, skip silently
         }
@@ -56,20 +58,31 @@ function syncPlatformData($targetUrl, $conn) {
 
         try {
             // 3. Keep User Profile table safely synchronized
+            // Query: INSERT INTO mmdb2026.vstu (matric_no, full_name) VALUES (?, ?)
+            //        ON DUPLICATE KEY UPDATE matric_no = matric_no
             $dummyName = "Student (" . $matricNumber . ")";
-            $userQuery = "INSERT INTO student_users (matric_number, full_name)
+            $userQuery = "INSERT INTO mmdb2026.vstu (matric_no, full_name)
                           VALUES (?, ?)
-                          ON DUPLICATE KEY UPDATE matric_number = matric_number";
+                          ON DUPLICATE KEY UPDATE matric_no = matric_no";
             $stmt = $conn->prepare($userQuery);
+            if ($stmt === false) {
+                throw new Exception("Failed to prepare user query: " . $conn->error);
+            }
             $stmt->bind_param("ss", $matricNumber, $dummyName);
             $stmt->execute();
             $stmt->close();
 
             // 4. Upsert key attributes directly inside core Multimedia asset table
+            // Query: INSERT INTO multimedia_asset (matric_number, title, file_name, file_path, file_type, mime_type, file_size_kb, upload_date, last_modified)
+            //        VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), NOW())
+            //        ON DUPLICATE KEY UPDATE last_modified = NOW()
             $assetQuery = "INSERT INTO multimedia_asset (matric_number, title, file_name, file_path, file_type, mime_type, file_size_kb, upload_date, last_modified)
                            VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), NOW())
                            ON DUPLICATE KEY UPDATE last_modified = NOW()";
             $stmt = $conn->prepare($assetQuery);
+            if ($stmt === false) {
+                throw new Exception("Failed to prepare asset query: " . $conn->error);
+            }
             $stmt->bind_param("ssssssd", $matricNumber, $title, $filename, $fullFilePath, $fileType, $mimeType, $simulatedSizeKb);
             $stmt->execute();
             $stmt->close();
@@ -78,6 +91,11 @@ function syncPlatformData($targetUrl, $conn) {
         } catch (mysqli_sql_exception $e) {
             // Log and move on instead of aborting the whole sync over one bad row
             error_log("syncPlatformData: failed to sync '{$filename}' - " . $e->getMessage());
+            $skippedCount++;
+            continue;
+        } catch (Exception $e) {
+            // Catch general exceptions as well
+            error_log("syncPlatformData: general error syncing '{$filename}' - " . $e->getMessage());
             $skippedCount++;
             continue;
         }
