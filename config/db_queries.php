@@ -489,4 +489,82 @@ function cbrDocumentSearch($conn, $pageCount) {
     }
     return $results;
 }
+
+// ==========================================================================
+// QUERY 15: TBR Full-Text Search
+// ==========================================================================
+function tbrSearch($conn, $query_term) {
+    $result = null;
+    try {
+        // Query: SELECT ma.*, v.*, tm.keywords, tm.tags, tm.captions, tm.description,
+        //        MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
+        //        FROM multimedia_asset ma
+        //        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
+        //        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
+        //        WHERE [conditions] ORDER BY relevance DESC, ma.upload_date DESC
+        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
+        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+        // audioStu, audioStu_date, videoStu, videoStu_date
+        $sql = "
+        SELECT
+            ma.*,
+            v.*,
+            tm.keywords,
+            tm.tags,
+            tm.captions,
+            tm.description,
+            MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
+        FROM multimedia_asset ma
+        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
+        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
+        WHERE
+            MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
+            OR ma.title LIKE ?
+            OR tm.captions LIKE ?
+        ORDER BY relevance DESC, ma.upload_date DESC
+        ";
+
+        $stmt = mysqli_prepare($conn, $sql);
+        if ($stmt) {
+            $likeTerm = '%' . $query_term . '%';
+            mysqli_stmt_bind_param($stmt, "ssss", $query_term, $query_term, $likeTerm, $likeTerm);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            mysqli_stmt_close($stmt);
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("TBR search error: " . $e->getMessage());
+        throw $e;
+    }
+    return $result;
+}
+
+// ==========================================================================
+// QUERY 16: Get Suggested Tags
+// ==========================================================================
+function getSuggestedTags($conn) {
+    $suggestedTags = [];
+    try {
+        if ($conn !== null) {
+            $tagResult = $conn->query("SELECT tags FROM text_metadata WHERE tags IS NOT NULL AND tags <> '' LIMIT 50");
+            if ($tagResult) {
+                $seen = [];
+                while ($row = $tagResult->fetch_assoc()) {
+                    foreach (explode(',', $row['tags']) as $tag) {
+                        $tag = trim($tag);
+                        if ($tag !== '' && !isset($seen[$tag])) {
+                            $seen[$tag] = true;
+                            $suggestedTags[] = $tag;
+                        }
+                        if (count($suggestedTags) >= 8) break 2;
+                    }
+                }
+            }
+        }
+    } catch (mysqli_sql_exception $e) {
+        // Non-critical — suggestions are a convenience feature, so fail quietly here
+        $suggestedTags = [];
+    }
+    return $suggestedTags;
+}
 ?>
