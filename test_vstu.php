@@ -8,7 +8,7 @@
 // ==========================================================================
 // DATABASE CONFIGURATION (Direct connection to mmdb2026)
 // ==========================================================================
-define('DB_SERVER', 'bitp3353.utem.edu.my');
+define('DB_SERVER', 'localhost'); // bitp3353.utem.edu.my (Server Madam)
 define('DB_USERNAME', 'gw07');
 define('DB_PASSWORD', 'password');
 define('DB_NAME', 'mmdb2026');
@@ -24,7 +24,7 @@ $rows = [];
 $total_rows = 0;
 $query_time = 0;
 $columns = [];
-$sql = "SELECT * FROM vstu ORDER BY full_name ASC"; // ✅ FIXED: Define $sql early
+$sql = "SELECT * FROM mmdb2026.vstu ORDER BY full_name ASC"; // ✅ FIXED: Added database prefix
 
 try {
     // Connect to the database
@@ -36,7 +36,7 @@ try {
     $connect_time = microtime(true) - $start_time;
 
     // --------------------------------------------------------------------------
-    // Test Query: SELECT * FROM vstu
+    // Test Query: SELECT * FROM mmdb2026.vstu
     // --------------------------------------------------------------------------
     $query_start = microtime(true);
     $result = $conn->query($sql);
@@ -308,10 +308,10 @@ if (!empty($rows)) {
             <br><br>
             <strong>Possible causes:</strong>
             <ul>
-                <li>Remote server is not accessible (check network/VPN)</li>
+                <li>Server is not accessible (check network/VPN)</li>
                 <li>Username or password is incorrect</li>
                 <li>Database name is incorrect</li>
-                <li>MySQL server is not running on the remote host</li>
+                <li>MySQL server is not running</li>
                 <li>Firewall is blocking the connection</li>
             </ul>
         </div>
