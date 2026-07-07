@@ -1,0 +1,209 @@
+<?php
+// ==========================================================================
+// db_queries.php - Centralized Database Queries for MetaSearch
+// All database queries are consolidated here for easy maintenance.
+// ==========================================================================
+
+// ==========================================================================
+// QUERY 1: Get All Groups
+// ==========================================================================
+function getGroups($conn) {
+    $groups = [];
+    try {
+        $sql = "SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
+        $result = $conn->query($sql);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $groups[] = $row['group_no'];
+            }
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get groups: " . $e->getMessage());
+    }
+    return $groups;
+}
+
+// ==========================================================================
+// QUERY 2: Get Group Members
+// ==========================================================================
+function getGroupMembers($conn, $group) {
+    $members = [];
+    try {
+        $sql = "SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC";
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            $stmt->bind_param("s", $group);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            while ($row = $result->fetch_assoc()) {
+                $members[] = $row;
+            }
+            $stmt->close();
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get group members: " . $e->getMessage());
+    }
+    return $members;
+}
+
+// ==========================================================================
+// QUERY 3: Get Asset Statistics
+// ==========================================================================
+function getAssetStatistics($conn) {
+    $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
+    try {
+        $sql = "SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type";
+        $result = $conn->query($sql);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $counts[$row['file_type']] = $row['total'];
+                $counts['total'] += $row['total'];
+            }
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get asset statistics: " . $e->getMessage());
+    }
+    return $counts;
+}
+
+// ==========================================================================
+// QUERY 4: Get Total Student Count
+// ==========================================================================
+function getStudentCount($conn) {
+    $count = 0;
+    try {
+        $sql = "SELECT COUNT(*) as total FROM mmdb2026.vstu";
+        $result = $conn->query($sql);
+        if ($result) {
+            $count = $result->fetch_assoc()['total'];
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get student count: " . $e->getMessage());
+    }
+    return $count;
+}
+
+// ==========================================================================
+// QUERY 5: Get Recent Uploads
+// ==========================================================================
+function getRecentUploads($conn) {
+    $assets = [];
+    try {
+        $sql = "SELECT ma.*, v.full_name AS owner_name 
+                FROM multimedia_asset ma
+                LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
+                ORDER BY ma.last_modified DESC 
+                LIMIT 10";
+        $result = $conn->query($sql);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $assets[] = $row;
+            }
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get recent uploads: " . $e->getMessage());
+    }
+    return $assets;
+}
+
+// ==========================================================================
+// QUERY 6: Search Assets (ABR + TBR Combined)
+// ==========================================================================
+function searchAssets($conn, $fileType, $query, $db_available) {
+    $results = [];
+    $whereClauses = [];
+    $params = [];
+    $types = "";
+    $searchPerformed = false;
+
+    if (!empty($fileType)) {
+        $whereClauses[] = "ma.file_type = ?";
+        $params[] = $fileType;
+        $types .= "s";
+        $searchPerformed = true;
+    }
+
+    if (!empty($query)) {
+        $searchTerm = '%' . $query . '%';
+        $whereClauses[] = "(ma.file_name LIKE ? OR ma.title LIKE ? OR ma.matric_number LIKE ?)";
+        $params[] = $searchTerm;
+        $params[] = $searchTerm;
+        $params[] = $searchTerm;
+        $types .= "sss";
+        $searchPerformed = true;
+    }
+
+    if ($searchPerformed && $db_available) {
+        try {
+            $sql = "SELECT ma.*, v.full_name AS owner_name 
+                    FROM multimedia_asset ma
+                    LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no";
+            
+            if (count($whereClauses) > 0) {
+                $sql .= " WHERE " . implode(" AND ", $whereClauses);
+            }
+            
+            $sql .= " ORDER BY ma.last_modified DESC LIMIT 15";
+            
+            $stmt = $conn->prepare($sql);
+            if ($stmt) {
+                if (!empty($params)) {
+                    $stmt->bind_param($types, ...$params);
+                }
+                $stmt->execute();
+                $result = $stmt->get_result();
+                while ($row = $result->fetch_assoc()) {
+                    $results[] = $row;
+                }
+                $stmt->close();
+            }
+        } catch (mysqli_sql_exception $e) {
+            error_log("Search error: " . $e->getMessage());
+        }
+    }
+    
+    return ['results' => $results, 'performed' => $searchPerformed];
+}
+
+// ==========================================================================
+// QUERY 7: Get Full vstu Data by Matric Number
+// ==========================================================================
+function getStudentByMatric($conn, $matric) {
+    $student = null;
+    try {
+        $sql = "SELECT * FROM mmdb2026.vstu WHERE matric_no = ?";
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            $stmt->bind_param("s", $matric);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            if ($row = $result->fetch_assoc()) {
+                $student = $row;
+            }
+            $stmt->close();
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get student by matric: " . $e->getMessage());
+    }
+    return $student;
+}
+
+// ==========================================================================
+// QUERY 8: Get All Students (for dropdown or display)
+// ==========================================================================
+function getAllStudents($conn) {
+    $students = [];
+    try {
+        $sql = "SELECT * FROM mmdb2026.vstu ORDER BY full_name ASC";
+        $result = $conn->query($sql);
+        if ($result) {
+            while ($row = $result->fetch_assoc()) {
+                $students[] = $row;
+            }
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("Failed to get all students: " . $e->getMessage());
+    }
+    return $students;
+}
+?>
