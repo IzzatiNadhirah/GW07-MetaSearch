@@ -206,4 +206,142 @@ function getAllStudents($conn) {
     }
     return $students;
 }
+
+// ==========================================================================
+// QUERY 9: ABR Filter Search
+// ==========================================================================
+function abrFilterSearch($conn, $fileType, $maxSize, $owner, $resolution, $maxDuration) {
+    $rows = [];
+    try {
+        // Base query: join video_metadata for resolution/duration
+        // Query: SELECT a.*, v.*, vm.resolution, vm.duration_seconds
+        //        FROM multimedia_asset a
+        //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+        //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
+        //        WHERE a.file_size_kb <= ?
+        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
+        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+        // audioStu, audioStu_date, videoStu, videoStu_date
+        $sql = "SELECT a.*, v.*, vm.resolution, vm.duration_seconds
+                FROM multimedia_asset a
+                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+                LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
+                WHERE a.file_size_kb <= ?";
+
+        $types  = "d";
+        $params = [$maxSize * 1024]; // convert MB (slider) -> KB (schema unit)
+
+        if ($fileType !== 'All') {
+            $sql .= " AND a.file_type = ?";
+            $types .= "s";
+            $params[] = $fileType;
+        }
+
+        if ($owner !== '') {
+            $sql .= " AND (v.full_name LIKE ? OR a.matric_number LIKE ?)";
+            $types .= "ss";
+            $likeOwner = '%' . $owner . '%';
+            $params[] = $likeOwner;
+            $params[] = $likeOwner;
+        }
+
+        if ($resolution !== 'All') {
+            $sql .= " AND vm.resolution = ?";
+            $types .= "s";
+            $params[] = $resolution;
+        }
+
+        // Only enforce duration cap on rows that actually have a duration (i.e. video/audio)
+        $sql .= " AND (vm.duration_seconds IS NULL OR vm.duration_seconds <= ?)";
+        $types .= "i";
+        $params[] = $maxDuration;
+
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            throw new Exception("Failed to prepare query: " . $conn->error);
+        }
+
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+    } catch (mysqli_sql_exception $e) {
+        error_log("ABR filter error: " . $e->getMessage());
+        throw $e;
+    }
+    return $rows;
+}
+
+// ==========================================================================
+// QUERY 10: Search Bar Filter (Alternative ABR Endpoint)
+// ==========================================================================
+function searchBarFilter($conn, $fileType, $maxSize, $owner, $resolution, $maxDuration) {
+    $rows = [];
+    try {
+        // Base query: join video_metadata for resolution/duration
+        // Query: SELECT a.*, v.*, vm.resolution, vm.duration_seconds
+        //        FROM multimedia_asset a
+        //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+        //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
+        //        WHERE a.file_size_kb <= ?
+        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
+        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+        // audioStu, audioStu_date, videoStu, videoStu_date
+        $sql = "SELECT a.*, v.*, vm.resolution, vm.duration_seconds
+                FROM multimedia_asset a
+                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
+                LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
+                WHERE a.file_size_kb <= ?";
+
+        $types  = "d";
+        $params = [$maxSize * 1024]; // convert MB (slider) -> KB (schema unit)
+
+        if ($fileType !== 'All') {
+            $sql .= " AND a.file_type = ?";
+            $types .= "s";
+            $params[] = $fileType;
+        }
+
+        if ($owner !== '') {
+            $sql .= " AND (v.full_name LIKE ? OR a.matric_number LIKE ?)";
+            $types .= "ss";
+            $likeOwner = '%' . $owner . '%';
+            $params[] = $likeOwner;
+            $params[] = $likeOwner;
+        }
+
+        if ($resolution !== 'All') {
+            $sql .= " AND vm.resolution = ?";
+            $types .= "s";
+            $params[] = $resolution;
+        }
+
+        // Only enforce duration cap on rows that actually have a duration (i.e. video/audio)
+        $sql .= " AND (vm.duration_seconds IS NULL OR vm.duration_seconds <= ?)";
+        $types .= "i";
+        $params[] = $maxDuration;
+
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            throw new Exception("Failed to prepare query: " . $conn->error);
+        }
+
+        $stmt->bind_param($types, ...$params);
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+    } catch (mysqli_sql_exception $e) {
+        error_log("Search bar filter error: " . $e->getMessage());
+        throw $e;
+    }
+    return $rows;
+}
 ?>
