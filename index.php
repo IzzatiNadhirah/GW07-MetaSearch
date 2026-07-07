@@ -32,12 +32,12 @@ if (!$db_available) {
 // --------------------------------------------------------------------------
 // 1. Get Group from URL parameter or POST (from dropdown)
 // --------------------------------------------------------------------------
-// Get all available groups from vstu for the dropdown
+// Get all available groups from mmdb2026.vstu for the dropdown
 $allGroups = [];
 if ($db_available) {
     try {
-        // Query: SELECT DISTINCT group_no FROM vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC
-        $groupQuery = "SELECT DISTINCT group_no FROM vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
+        // Query: SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC
+        $groupQuery = "SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' ORDER BY group_no ASC";
         $groupResult = $conn->query($groupQuery);
         if ($groupResult) {
             while ($row = $groupResult->fetch_assoc()) {
@@ -85,8 +85,8 @@ try {
 }
 
 // --------------------------------------------------------------------------
-// 3. Get Group Members from vstu
-//    Query: SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC
+// 3. Get Group Members from mmdb2026.vstu
+//    Query: SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC
 //    Fetches all columns: id, matric_no, full_name, phone_no, group_no, 
 //    life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
 //    audioStu, audioStu_date, videoStu, videoStu_date
@@ -97,8 +97,8 @@ $error_message = null;
 // Check if connection exists AND a group is selected before querying
 if ($db_available && !empty($group)) {
     try {
-        // Query: SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC
-        $memberSql = "SELECT * FROM vstu WHERE group_no = ? ORDER BY full_name ASC";
+        // Query: SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC
+        $memberSql = "SELECT * FROM mmdb2026.vstu WHERE group_no = ? ORDER BY full_name ASC";
         
         if ($stmt = $conn->prepare($memberSql)) {
             $stmt->bind_param("s", $group);
@@ -130,9 +130,9 @@ if ($db_available && !empty($group)) {
 // --------------------------------------------------------------------------
 // 4. Get Dashboard Statistics from multimedia_asset
 //    Query: SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type
-//    Also: SELECT COUNT(*) as total FROM vstu (for total students)
+//    Also: SELECT COUNT(*) as total FROM mmdb2026.vstu (for total students)
 //    Also: SELECT ma.*, v.full_name AS owner_name FROM multimedia_asset ma
-//          LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//          LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
 //          ORDER BY ma.last_modified DESC LIMIT 10
 // --------------------------------------------------------------------------
 $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
@@ -153,12 +153,12 @@ try {
     error_log("Failed to get asset statistics: " . $e->getMessage());
 }
 
-// Get total students count from vstu
-// Query: SELECT COUNT(*) as total FROM vstu
+// Get total students count from mmdb2026.vstu
+// Query: SELECT COUNT(*) as total FROM mmdb2026.vstu
 $studentCount = 0;
 if ($db_available) {
     try {
-        $studentRes = $conn->query("SELECT COUNT(*) as total FROM vstu");
+        $studentRes = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu");
         if ($studentRes) {
             $studentCount = $studentRes->fetch_assoc()['total'];
         }
@@ -170,17 +170,17 @@ if ($db_available) {
     $studentCount = 'N/A';
 }
 
-// Get recent uploads with owner name from vstu
+// Get recent uploads with owner name from mmdb2026.vstu
 // Query: SELECT ma.*, v.full_name AS owner_name 
 //        FROM multimedia_asset ma
-//        LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
 //        ORDER BY ma.last_modified DESC LIMIT 10
 $recentAssets = [];
 try {
     if ($db_available) {
         $recentSql = "SELECT ma.*, v.full_name AS owner_name 
                       FROM multimedia_asset ma
-                      LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+                      LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
                       ORDER BY ma.last_modified DESC 
                       LIMIT 10";
         $recentRes = $conn->query($recentSql);
@@ -198,7 +198,7 @@ try {
 // 5. Handle Search (ABR + TBR combined)
 //    Query: SELECT ma.*, v.full_name AS owner_name 
 //           FROM multimedia_asset ma
-//           LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//           LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
 //           WHERE [filters] ORDER BY ma.last_modified DESC LIMIT 15
 // --------------------------------------------------------------------------
 $whereClauses = [];
@@ -224,15 +224,15 @@ if (!empty($_GET['query'])) {
     $searchPerformed = true;
 }
 
-// Build search query - include owner name from vstu
+// Build search query - include owner name from mmdb2026.vstu
 // Query: SELECT ma.*, v.full_name AS owner_name 
 //        FROM multimedia_asset ma
-//        LEFT JOIN vstu v ON ma.matric_number = v.matric_no
+//        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
 //        WHERE [conditions] ORDER BY ma.last_modified DESC LIMIT 15
 if ($db_available) {
     $searchSql = "SELECT ma.*, v.full_name AS owner_name 
                   FROM multimedia_asset ma
-                  LEFT JOIN vstu v ON ma.matric_number = v.matric_no";
+                  LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no";
 } else {
     $searchSql = "SELECT ma.*, 'Unknown' AS owner_name 
                   FROM multimedia_asset ma";
