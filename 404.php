@@ -12,6 +12,12 @@ $requested_url = $_SERVER['REQUEST_URI'] ?? 'Unknown page';
 
 // Clean up the URL for display
 $requested_url = htmlspecialchars($requested_url);
+
+// Get the referring page if available
+$referer = isset($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : null;
+
+// Determine if we're in a subdirectory
+$base_path = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '/';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -145,6 +151,23 @@ $requested_url = htmlspecialchars($requested_url);
             from { opacity: 0; transform: translateY(10px); }
             to   { opacity: 1; transform: translateY(0); }
         }
+
+        /* Responsive adjustments */
+        @media (max-width: 576px) {
+            .error-container {
+                padding: 25px;
+            }
+            .error-code {
+                font-size: 5rem;
+            }
+            .error-title {
+                font-size: 1.5rem;
+            }
+            .btn-home, .btn-back {
+                padding: 10px 20px;
+                font-size: 0.9rem;
+            }
+        }
     </style>
 </head>
 <body>
@@ -177,9 +200,15 @@ $requested_url = htmlspecialchars($requested_url);
         <a href="index.php" class="btn-home">
             <i class="fa-solid fa-house"></i> Back to Home
         </a>
-        <a href="javascript:history.back()" class="btn-back">
-            <i class="fa-solid fa-arrow-left"></i> Go Back
-        </a>
+        <?php if ($referer): ?>
+            <a href="<?php echo htmlspecialchars($referer); ?>" class="btn-back">
+                <i class="fa-solid fa-arrow-left"></i> Go Back
+            </a>
+        <?php else: ?>
+            <a href="javascript:history.back()" class="btn-back">
+                <i class="fa-solid fa-arrow-left"></i> Go Back
+            </a>
+        <?php endif; ?>
     </div>
 
     <!-- Quick Navigation Links -->
@@ -188,6 +217,7 @@ $requested_url = htmlspecialchars($requested_url);
         <a href="ABR/abr_search.html">ABR</a>
         <a href="TBR/tbr.php">TBR</a>
         <a href="CBR/cbr_search.php">CBR</a>
+        <a href="test.php">Database Viewer</a>
     </div>
 
     <!-- Footer -->
@@ -198,7 +228,14 @@ $requested_url = htmlspecialchars($requested_url);
 </div>
 
 <script>
+    // Log the 404 error for debugging
     console.log('404 Page: Requested URL - <?php echo $requested_url; ?>');
+    console.log('404 Page: Referer - <?php echo htmlspecialchars($referer ?? 'None'); ?>');
+    
+    // Optional: Send 404 error to analytics if needed
+    // if (typeof gtag !== 'undefined') {
+    //     gtag('event', '404', { 'page_path': '<?php echo $requested_url; ?>' });
+    // }
 </script>
 
 </body>
