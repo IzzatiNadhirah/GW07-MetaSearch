@@ -36,12 +36,15 @@ try {
     $db_available = isDbConnected();
 
     // Base query: join video_metadata for resolution/duration
-    // Query: SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
+    // Query: SELECT a.*, v.*, vm.resolution, vm.duration_seconds
     //        FROM multimedia_asset a
     //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
     //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
     //        WHERE a.file_size_kb <= ?
-    $sql = "SELECT a.*, v.full_name AS owner_name, vm.resolution, vm.duration_seconds
+    // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
+    // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
+    // audioStu, audioStu_date, videoStu, videoStu_date
+    $sql = "SELECT a.*, v.*, vm.resolution, vm.duration_seconds
             FROM multimedia_asset a
             LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
             LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
@@ -58,7 +61,7 @@ try {
 
     if ($owner !== '') {
         // "Owner" isn't a column on multimedia_asset — search matched student's name or matric number instead
-        $sql .= " AND (owner_name LIKE ? OR a.matric_number LIKE ?)";
+        $sql .= " AND (v.full_name LIKE ? OR a.matric_number LIKE ?)";
         $types .= "ss";
         $likeOwner = '%' . $owner . '%';
         $params[] = $likeOwner;
