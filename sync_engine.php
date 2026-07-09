@@ -1,6 +1,7 @@
 <?php
 // ==========================================================================
 // sync_engine.php - Remote Data Synchronization Engine
+// Now only syncs to mmdb2026.vstu table (no multimedia_asset)
 // ==========================================================================
 
 function syncPlatformData($targetUrl, $conn) {
@@ -47,45 +48,71 @@ function syncPlatformData($targetUrl, $conn) {
         // Map standard system attributes based on prefix rules
         $fileType = 'document';
         $mimeType = 'application/pdf';
-        if ($typePrefix === 'p') { $fileType = 'image'; $mimeType = 'image/jpeg'; }
-        if ($typePrefix === 'a') { $fileType = 'audio'; $mimeType = 'audio/mpeg'; }
-        if ($typePrefix === 'v') { $fileType = 'video'; $mimeType = 'video/mp4'; }
+        $columnName = 'docStu'; // default for document
+        $dateColumn = 'docStu_date';
+        
+        if ($typePrefix === 'p') { 
+            $fileType = 'image'; 
+            $mimeType = 'image/jpeg';
+            $columnName = 'photoStu';
+            $dateColumn = 'photoStu_date';
+        }
+        if ($typePrefix === 'a') { 
+            $fileType = 'audio'; 
+            $mimeType = 'audio/mpeg';
+            $columnName = 'audioStu';
+            $dateColumn = 'audioStu_date';
+        }
+        if ($typePrefix === 'v') { 
+            $fileType = 'video'; 
+            $mimeType = 'video/mp4';
+            $columnName = 'videoStu';
+            $dateColumn = 'videoStu_date';
+        }
 
-        // Construct synthetic asset properties
-        $title = strtoupper($fileType) . " Submission Entry for " . $matricNumber;
         $fullFilePath = rtrim($targetUrl, '/') . '/' . $filename;
-        $simulatedSizeKb = ($fileType === 'video') ? 80680.93 : (($fileType === 'audio') ? 3121.66 : 242.95);
 
         try {
-            // 3. Keep User Profile table safely synchronized
-            // Query: INSERT INTO mmdb2026.vstu (matric_no, full_name) VALUES (?, ?)
-            //        ON DUPLICATE KEY UPDATE matric_no = matric_no
-            $dummyName = "Student (" . $matricNumber . ")";
-            $userQuery = "INSERT INTO mmdb2026.vstu (matric_no, full_name)
-                          VALUES (?, ?)
-                          ON DUPLICATE KEY UPDATE matric_no = matric_no";
-            $stmt = $conn->prepare($userQuery);
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare user query: " . $conn->error);
+            // 3. Check if student exists in vstu table
+            $checkQuery = "SELECT matric_no FROM mmdb2026.vstu WHERE matric_no = ?";
+            $checkStmt = $conn->prepare($checkQuery);
+            if ($checkStmt === false) {
+                throw new Exception("Failed to prepare check query: " . $conn->error);
             }
-            $stmt->bind_param("ss", $matricNumber, $dummyName);
-            $stmt->execute();
-            $stmt->close();
+            $checkStmt->bind_param("s", $matricNumber);
+            $checkStmt->execute();
+            $checkResult = $checkStmt->get_result();
+            $studentExists = $checkResult->num_rows > 0;
+            $checkStmt->close();
 
-            // 4. Upsert key attributes directly inside core Multimedia asset table
-            // Query: INSERT INTO multimedia_asset (matric_number, title, file_name, file_path, file_type, mime_type, file_size_kb, upload_date, last_modified)
-            //        VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), NOW())
-            //        ON DUPLICATE KEY UPDATE last_modified = NOW()
-            $assetQuery = "INSERT INTO multimedia_asset (matric_number, title, file_name, file_path, file_type, mime_type, file_size_kb, upload_date, last_modified)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, CURDATE(), NOW())
-                           ON DUPLICATE KEY UPDATE last_modified = NOW()";
-            $stmt = $conn->prepare($assetQuery);
-            if ($stmt === false) {
-                throw new Exception("Failed to prepare asset query: " . $conn->error);
+            if ($studentExists) {
+                // Update existing student with the file path
+                // Query: UPDATE mmdb2026.vstu SET column = ? WHERE matric_no = ?
+                $updateQuery = "UPDATE mmdb2026.vstu SET $columnName = ?, $dateColumn = CURDATE() WHERE matric_no = ?";
+                $updateStmt = $conn->prepare($updateQuery);
+                if ($updateStmt === false) {
+                    throw new Exception("Failed to prepare update query: " . $conn->error);
+                }
+                $updateStmt->bind_param("ss", $fullFilePath, $matricNumber);
+                $updateStmt->execute();
+                $updateStmt->close();
+                
+                error_log("syncPlatformData: Updated $columnName for $matricNumber with $fullFilePath");
+            } else {
+                // Insert new student with the file path
+                // Query: INSERT INTO mmdb2026.vstu (matric_no, full_name, column) VALUES (?, ?, ?)
+                $dummyName = "Student (" . $matricNumber . ")";
+                $insertQuery = "INSERT INTO mmdb2026.vstu (matric_no, full_name, $columnName, $dateColumn) VALUES (?, ?, ?, CURDATE())";
+                $insertStmt = $conn->prepare($insertQuery);
+                if ($insertStmt === false) {
+                    throw new Exception("Failed to prepare insert query: " . $conn->error);
+                }
+                $insertStmt->bind_param("sss", $matricNumber, $dummyName, $fullFilePath);
+                $insertStmt->execute();
+                $insertStmt->close();
+                
+                error_log("syncPlatformData: Inserted new student $matricNumber with $columnName");
             }
-            $stmt->bind_param("ssssssd", $matricNumber, $title, $filename, $fullFilePath, $fileType, $mimeType, $simulatedSizeKb);
-            $stmt->execute();
-            $stmt->close();
 
             $syncedCount++;
         } catch (mysqli_sql_exception $e) {
