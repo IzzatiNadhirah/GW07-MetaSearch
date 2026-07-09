@@ -1,12 +1,10 @@
 <?php
 // ==========================================================================
 // cbr_search.php
-// Content-Based Retrieval (CBR) — per proposal section 3C:
-// Retrieves multimedia based on inherent content characteristics
-// represented by metadata.
+// Content-Based Retrieval (CBR) — Now searches mmdb2026.vstu table only.
+// Retrieves students based on media availability: photo, doc, audio, video
 // ==========================================================================
 
-// UPDATED: use the single shared connection file (was: include 'db.php')
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/db_queries.php';
 
@@ -20,94 +18,31 @@ if ($conn === null || !$conn->ping()) {
     $conn_error = null;
 }
 
-$result = "";
+$results = [];
 $search_performed = false;
-$error_message = null; // NEW: holds validation/query errors to show the user instead of failing silently
-$selected_type = isset($_GET['type']) ? $_GET['type'] : 'image';
+$error_message = null;
+$selected_type = isset($_GET['type']) ? $_GET['type'] : 'photo';
 $selected_value = isset($_GET['value']) ? $_GET['value'] : '';
 
-// NEW: whitelist of valid media types — prevents undefined $sql if an unexpected type is passed
-$allowed_types = ['image', 'video', 'audio', 'document'];
+$allowed_types = ['photo', 'doc', 'audio', 'video', 'motto'];
 
 if (isset($_GET['search'])) {
     $search_performed = true;
     $type = $_GET['type'] ?? '';
     $value = trim($_GET['value'] ?? '');
 
-    // NEW: validate type against whitelist
     if (!in_array($type, $allowed_types, true)) {
         $error_message = "Invalid media type selected.";
-    }
-    // NEW: reject empty search value
-    elseif ($value === '') {
-        $error_message = "Please enter a search value.";
-    }
-    // ✅ FIXED: Check for connection error before proceeding
-    elseif ($conn_error !== null) {
+    } elseif ($type === 'motto' && $value === '') {
+        $error_message = "Please enter a motto to search for.";
+    } elseif ($conn_error !== null) {
         $error_message = $conn_error;
     } else {
         try {
-            switch ($type) {
-                case "image":
-                    // Search by dominant color (LIKE for partial match)
-                    $rows = cbrImageSearch($conn, $value);
-                    $result = $rows;
-                    break;
-
-                case "video":
-                    // Validate that value is numeric before using it as a duration filter
-                    if (!is_numeric($value) || (int)$value < 0) {
-                        $error_message = "Duration must be a positive number (in minutes).";
-                        break;
-                    }
-                    // Convert minutes to seconds for comparison
-                    $seconds = (int)$value * 60;
-                    $rows = cbrVideoSearch($conn, $seconds);
-                    // Convert array to result set format for display
-                    if (!empty($rows)) {
-                        // Create a temporary result set for display
-                        $result = $rows;
-                    }
-                    break;
-
-                case "audio":
-                    // Validate that value is numeric before using it as a duration filter
-                    if (!is_numeric($value) || (int)$value < 0) {
-                        $error_message = "Duration must be a positive number (in minutes).";
-                        break;
-                    }
-                    // Convert minutes to seconds for comparison
-                    $seconds = (int)$value * 60;
-                    $rows = cbrAudioSearch($conn, $seconds);
-                    if (!empty($rows)) {
-                        $result = $rows;
-                    }
-                    break;
-
-                case "document":
-                    // Validate that value is numeric before using it as a page count filter
-                    if (!is_numeric($value) || (int)$value < 0) {
-                        $error_message = "Page count must be a positive number.";
-                        break;
-                    }
-                    // Search by page count
-                    $pageCount = (int)$value;
-                    $rows = cbrDocumentSearch($conn, $pageCount);
-                    if (!empty($rows)) {
-                        $result = $rows;
-                    }
-                    break;
-
-                default:
-                    $error_message = "Unsupported media type.";
-                    break;
+            $results = cbrSearch($conn, $type, $value);
+            if (empty($results)) {
+                $error_message = "No results found for your search criteria.";
             }
-
-            // Check if any results were found
-            if (!$error_message && empty($result)) {
-                $result = []; // Empty array for no results
-            }
-
         } catch (mysqli_sql_exception $e) {
             $error_message = "Database error: " . $e->getMessage();
         } catch (Exception $e) {
@@ -116,69 +51,48 @@ if (isset($_GET['search'])) {
     }
 }
 
-// Convert result array to mysqli_result-like object for display
-// Since we're using arrays, we need to handle the display differently
-// The display code below will work with both mysqli_result and array
-
 function getFeatureInfo($type) {
     $info = [
-        'image' => [
-            'label' => 'Dominant Color',
-            'placeholder' => 'e.g. #FF0000 or red',
-            'type' => 'color',
-            'hint' => 'Search images by dominant color (partial match)',
-            'operator' => 'LIKE'
+        'photo' => [
+            'label' => 'Has Photo',
+            'placeholder' => '',
+            'type' => 'text',
+            'hint' => 'Shows students who have uploaded a photo',
+            'operator' => 'IS NOT NULL'
         ],
-        'video' => [
-            'label' => 'Duration (minutes)',
-            'placeholder' => 'e.g. 5',
-            'type' => 'number',
-            'hint' => 'Shows videos with duration >= value (in minutes)',
-            'operator' => '>='
+        'doc' => [
+            'label' => 'Has Document',
+            'placeholder' => '',
+            'type' => 'text',
+            'hint' => 'Shows students who have uploaded a document',
+            'operator' => 'IS NOT NULL'
         ],
         'audio' => [
-            'label' => 'Duration (minutes)',
-            'placeholder' => 'e.g. 3',
-            'type' => 'number',
-            'hint' => 'Shows audio with duration >= value (in minutes)',
-            'operator' => '>='
+            'label' => 'Has Audio',
+            'placeholder' => '',
+            'type' => 'text',
+            'hint' => 'Shows students who have uploaded audio',
+            'operator' => 'IS NOT NULL'
         ],
-        'document' => [
-            'label' => 'Page Count',
-            'placeholder' => 'e.g. 10',
-            'type' => 'number',
-            'hint' => 'Shows documents with page count >= value',
-            'operator' => '>='
+        'video' => [
+            'label' => 'Has Video',
+            'placeholder' => '',
+            'type' => 'text',
+            'hint' => 'Shows students who have uploaded video',
+            'operator' => 'IS NOT NULL'
+        ],
+        'motto' => [
+            'label' => 'Life Motto Contains',
+            'placeholder' => 'e.g. code, life, dream',
+            'type' => 'text',
+            'hint' => 'Search students by their life motto (partial match)',
+            'operator' => 'LIKE'
         ]
     ];
-    return $info[$type] ?? $info['image'];
+    return $info[$type] ?? $info['photo'];
 }
 
 $featureInfo = getFeatureInfo($selected_type);
-
-// Helper function to get row count from result (works with both array and mysqli_result)
-function getResultCount($result) {
-    if (is_array($result)) {
-        return count($result);
-    } elseif (is_object($result) && method_exists($result, 'num_rows')) {
-        return $result->num_rows;
-    }
-    return 0;
-}
-
-// Helper function to fetch rows from result (works with both array and mysqli_result)
-function fetchResultRows($result) {
-    if (is_array($result)) {
-        return $result;
-    } elseif (is_object($result) && method_exists($result, 'fetch_assoc')) {
-        $rows = [];
-        while ($row = $result->fetch_assoc()) {
-            $rows[] = $row;
-        }
-        return $rows;
-    }
-    return [];
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -186,7 +100,7 @@ function fetchResultRows($result) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Content-Based Retrieval | MetaSearch</title>
-    <!-- UPDATED: shared external stylesheet (moved out of inline <style>, now project-root style.css) -->
+    <!-- UPDATED: shared external stylesheet -->
     <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -211,18 +125,19 @@ function fetchResultRows($result) {
     <div class="container">
         <div class="header">
             <h1>Content-Based Retrieval (CBR)</h1>
-            <div class="subtitle">Database: <span>gw07</span></div>
+            <div class="subtitle">Search students by media availability or motto</div>
         </div>
 
         <div class="panel">
             <form method="GET" class="search-form" id="searchForm">
                 <div class="form-group">
-                    <label>Media Type</label>
+                    <label>Search Type</label>
                     <select name="type" id="mediaType" onchange="updateFields()">
-                        <option value="image" <?php echo $selected_type == 'image' ? 'selected' : ''; ?>>Image</option>
-                        <option value="video" <?php echo $selected_type == 'video' ? 'selected' : ''; ?>>Video</option>
-                        <option value="audio" <?php echo $selected_type == 'audio' ? 'selected' : ''; ?>>Audio</option>
-                        <option value="document" <?php echo $selected_type == 'document' ? 'selected' : ''; ?>>Document</option>
+                        <option value="photo" <?php echo $selected_type == 'photo' ? 'selected' : ''; ?>>Has Photo</option>
+                        <option value="doc" <?php echo $selected_type == 'doc' ? 'selected' : ''; ?>>Has Document</option>
+                        <option value="audio" <?php echo $selected_type == 'audio' ? 'selected' : ''; ?>>Has Audio</option>
+                        <option value="video" <?php echo $selected_type == 'video' ? 'selected' : ''; ?>>Has Video</option>
+                        <option value="motto" <?php echo $selected_type == 'motto' ? 'selected' : ''; ?>>Life Motto</option>
                     </select>
                 </div>
 
@@ -232,8 +147,8 @@ function fetchResultRows($result) {
                            id="valueInput"
                            name="value" 
                            placeholder="<?php echo $featureInfo['placeholder']; ?>" 
-                           value="<?php echo htmlspecialchars($selected_value); ?>" 
-                           required>
+                           value="<?php echo htmlspecialchars($selected_value); ?>"
+                           <?php echo ($selected_type !== 'motto') ? 'disabled' : ''; ?>>
                 </div>
 
                 <div class="search-actions">
@@ -251,30 +166,34 @@ function fetchResultRows($result) {
                 <h3>Search Features</h3>
                 <div class="features-grid">
                     <div class="feature-item">
-                        <span class="feature-label">Image</span>
-                        <span class="feature-value">Dominant Color</span>
-                        <span class="feature-operator">LIKE</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Video</span>
-                        <span class="feature-value">Duration (minutes)</span>
-                        <span class="feature-operator">>=</span>
-                    </div>
-                    <div class="feature-item">
-                        <span class="feature-label">Audio</span>
-                        <span class="feature-value">Duration (minutes)</span>
-                        <span class="feature-operator">>=</span>
+                        <span class="feature-label">Photo</span>
+                        <span class="feature-value">Has Photo</span>
+                        <span class="feature-operator">IS NOT NULL</span>
                     </div>
                     <div class="feature-item">
                         <span class="feature-label">Document</span>
-                        <span class="feature-value">Page Count</span>
-                        <span class="feature-operator">>=</span>
+                        <span class="feature-value">Has Document</span>
+                        <span class="feature-operator">IS NOT NULL</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-label">Audio</span>
+                        <span class="feature-value">Has Audio</span>
+                        <span class="feature-operator">IS NOT NULL</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-label">Video</span>
+                        <span class="feature-value">Has Video</span>
+                        <span class="feature-operator">IS NOT NULL</span>
+                    </div>
+                    <div class="feature-item">
+                        <span class="feature-label">Motto</span>
+                        <span class="feature-value">Life Motto</span>
+                        <span class="feature-operator">LIKE</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <?php /* NEW: show validation/query errors clearly instead of a silent "0 results" */ ?>
         <?php if ($search_performed && $error_message): ?>
             <div class="error-banner">
                 <strong>Error:</strong> <?php echo htmlspecialchars($error_message); ?>
@@ -285,73 +204,68 @@ function fetchResultRows($result) {
             <div class="results-section">
                 <div class="results-header">
                     <span class="results-count">
-                        Found <strong><?php echo getResultCount($result); ?></strong> result(s)
+                        Found <strong><?php echo count($results); ?></strong> result(s)
                     </span>
                     <span class="results-info">
-                        Type: <span><?php echo htmlspecialchars(ucfirst($selected_type)); ?></span> |
-                        <?php echo $featureInfo['label']; ?> <?php echo $featureInfo['operator']; ?> <span><?php echo htmlspecialchars($selected_value); ?></span>
+                        Type: <span><?php echo htmlspecialchars(ucfirst($selected_type)); ?></span>
+                        <?php if ($selected_type === 'motto'): ?>
+                            | Motto contains: <span>"<?php echo htmlspecialchars($selected_value); ?>"</span>
+                        <?php endif; ?>
                     </span>
                 </div>
 
-                <?php if (!empty($result) && getResultCount($result) > 0): ?>
+                <?php if (!empty($results)): ?>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
-                                    <?php 
-                                    $displayRows = fetchResultRows($result);
-                                    if (!empty($displayRows)):
-                                        $firstRow = $displayRows[0];
-                                        foreach ($firstRow as $key => $value): 
-                                    ?>
-                                        <th>
-                                            <?php
-                                            $labels = [
-                                                'title' => 'Title',
-                                                'file_name' => 'File Name',
-                                                'file_path' => 'File Path',
-                                                'width' => 'Width (px)',
-                                                'height' => 'Height (px)',
-                                                'resolution' => 'Resolution',
-                                                'dominant_color' => 'Dominant Color',
-                                                'duration_seconds' => 'Duration (s)',
-                                                'duration_formatted' => 'Duration',
-                                                'bitrate_kbps' => 'Bitrate (kbps)',
-                                                'audio_format' => 'Format',
-                                                'page_count' => 'Pages',
-                                                'is_searchable' => 'Searchable'
-                                            ];
-                                            echo htmlspecialchars($labels[$key] ?? $key);
-                                            ?>
-                                        </th>
-                                    <?php endforeach; ?>
-                                    <?php endif; ?>
+                                    <th>Matric No</th>
+                                    <th>Full Name</th>
+                                    <th>Group</th>
+                                    <th>Motto</th>
+                                    <th>Photo</th>
+                                    <th>Doc</th>
+                                    <th>Audio</th>
+                                    <th>Video</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if (!empty($displayRows)): ?>
-                                    <?php foreach ($displayRows as $row): ?>
-                                        <tr>
-                                            <?php foreach ($row as $key => $data): ?>
-                                                <td>
-                                                    <?php
-                                                    if ($key == 'dominant_color' && !empty($data)) {
-                                                        echo htmlspecialchars($data) . ' <span class="color-preview" style="background:' . htmlspecialchars($data) . ';"></span>';
-                                                    } elseif ($key == 'is_searchable') {
-                                                        echo $data ? '<span class="badge badge-yes">Yes</span>' : '<span class="badge badge-no">No</span>';
-                                                    } elseif ($key == 'duration_formatted') {
-                                                        echo htmlspecialchars($data);
-                                                    } elseif ($key == 'duration_seconds') {
-                                                        echo htmlspecialchars($data) . 's';
-                                                    } else {
-                                                        echo htmlspecialchars($data);
-                                                    }
-                                                    ?>
-                                                </td>
-                                            <?php endforeach; ?>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                <?php endif; ?>
+                                <?php foreach ($results as $row): ?>
+                                    <tr>
+                                        <td><strong><?php echo htmlspecialchars($row['matric_no']); ?></strong></td>
+                                        <td><?php echo htmlspecialchars($row['full_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($row['group_no'] ?? '-'); ?></td>
+                                        <td><?php echo htmlspecialchars($row['life_motto'] ?? '-'); ?></td>
+                                        <td>
+                                            <?php if (!empty($row['photoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['photoStu']); ?>" target="_blank" class="btn-reset">View</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['docStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['docStu']); ?>" target="_blank" class="btn-reset">View</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['audioStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['audioStu']); ?>" target="_blank" class="btn-reset">Play</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['videoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['videoStu']); ?>" target="_blank" class="btn-reset">Play</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
@@ -359,7 +273,7 @@ function fetchResultRows($result) {
                     <div class="no-results">
                         <span class="icon">🔍</span>
                         <h2>No Results Found</h2>
-                        <p>Try adjusting your search criteria or adding data to the database.</p>
+                        <p>Try adjusting your search criteria.</p>
                     </div>
                 <?php endif; ?>
             </div>
@@ -371,29 +285,35 @@ function fetchResultRows($result) {
 
     <script>
         const fieldData = {
-            'image': {
-                label: 'Dominant Color',
-                placeholder: 'e.g. #FF0000 or red',
-                type: 'color',
-                hint: '<strong>Note:</strong> Search images by dominant color (partial match) <span class="operator-badge">LIKE</span>'
+            'photo': {
+                label: 'Has Photo',
+                placeholder: '',
+                type: 'text',
+                hint: '<strong>Note:</strong> Shows students who have uploaded a photo <span class="operator-badge">IS NOT NULL</span>'
             },
-            'video': {
-                label: 'Duration (minutes)',
-                placeholder: 'e.g. 5',
-                type: 'number',
-                hint: '<strong>Note:</strong> Shows videos with duration >= value (in minutes) <span class="operator-badge">>=</span>'
+            'doc': {
+                label: 'Has Document',
+                placeholder: '',
+                type: 'text',
+                hint: '<strong>Note:</strong> Shows students who have uploaded a document <span class="operator-badge">IS NOT NULL</span>'
             },
             'audio': {
-                label: 'Duration (minutes)',
-                placeholder: 'e.g. 3',
-                type: 'number',
-                hint: '<strong>Note:</strong> Shows audio with duration >= value (in minutes) <span class="operator-badge">>=</span>'
+                label: 'Has Audio',
+                placeholder: '',
+                type: 'text',
+                hint: '<strong>Note:</strong> Shows students who have uploaded audio <span class="operator-badge">IS NOT NULL</span>'
             },
-            'document': {
-                label: 'Page Count',
-                placeholder: 'e.g. 10',
-                type: 'number',
-                hint: '<strong>Note:</strong> Shows documents with page count >= value <span class="operator-badge">>=</span>'
+            'video': {
+                label: 'Has Video',
+                placeholder: '',
+                type: 'text',
+                hint: '<strong>Note:</strong> Shows students who have uploaded video <span class="operator-badge">IS NOT NULL</span>'
+            },
+            'motto': {
+                label: 'Life Motto Contains',
+                placeholder: 'e.g. code, life, dream',
+                type: 'text',
+                hint: '<strong>Note:</strong> Search students by their life motto (partial match) <span class="operator-badge">LIKE</span>'
             }
         };
 
@@ -407,11 +327,15 @@ function fetchResultRows($result) {
             label.textContent = data.label;
             input.placeholder = data.placeholder;
             input.type = data.type;
-            if (data.type === 'color') {
-                input.value = '#000000';
+            
+            if (type === 'motto') {
+                input.disabled = false;
+                input.value = '';
             } else {
+                input.disabled = true;
                 input.value = '';
             }
+            
             hint.innerHTML = data.hint;
         }
     </script>
