@@ -1,8 +1,6 @@
 <!-- ==========================================================================
 abr_search.html
-Attribute-Based Retrieval (ABR) — per proposal section 3A:
-Retrieves multimedia files using structured metadata attributes:
-File Type, Upload Date, File Size, Owner/Uploader, Duration, Resolution.
+Attribute-Based Retrieval (ABR) — Now searches mmdb2026.vstu table only.
 ========================================================================== -->
 <!DOCTYPE html>
 <html lang="en">
@@ -10,9 +8,6 @@ File Type, Upload Date, File Size, Owner/Uploader, Duration, Resolution.
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attribute-Based Retrieval | MetaSearch</title>
-    <!-- UPDATED: Tailwind CDN removed — now uses the shared project stylesheet
-         (one folder up, since style.css moved to project root) so ABR matches
-         the CBR / TBR look. -->
     <link rel="stylesheet" href="../style.css">
 </head>
 <body>
@@ -37,55 +32,48 @@ File Type, Upload Date, File Size, Owner/Uploader, Duration, Resolution.
         <div class="container">
             <div class="header">
                 <h1>Attribute-Based Retrieval (ABR)</h1>
-                <div class="subtitle">Filter multimedia by structured metadata attributes</div>
+                <div class="subtitle">Search students by group, name, and media availability</div>
             </div>
 
             <div class="panel">
                 <form id="abrForm" class="filter-form" method="POST" action="abr_filter.php">
+                    <!-- Group Filter -->
                     <div class="form-group">
-                        <label for="fileType">File Type</label>
-                        <select id="fileType" name="fileType">
-                            <option value="All">All</option>
-                            <option value="image">Image</option>
-                            <option value="video">Video</option>
-                            <option value="audio">Audio</option>
-                            <option value="document">Document</option>
+                        <label for="group">Group</label>
+                        <select id="group" name="group">
+                            <option value="">All Groups</option>
+                            <option value="GS01">GS01</option>
+                            <option value="GS02">GS02</option>
+                            <option value="GS03">GS03</option>
+                            <option value="GS04">GS04</option>
+                            <option value="GS05">GS05</option>
+                            <option value="GW07">GW07</option>
                         </select>
                     </div>
 
-                    <div class="form-group">
-                        <label for="maxSize">Max File Size (MB)</label>
-                        <input type="range" id="maxSize" name="maxSize" min="1" max="500" value="500" oninput="document.getElementById('sizeValue').textContent = this.value + ' MB'">
-                        <span id="sizeValue" class="hint">500 MB</span>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="resolution">Resolution</label>
-                        <select id="resolution" name="resolution">
-                            <option value="All">All</option>
-                            <option value="480p">480p</option>
-                            <option value="720p">720p</option>
-                            <option value="1080p">1080p</option>
-                            <option value="4K">4K</option>
-                            <option value="8K">8K</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="maxDuration">Max Duration (seconds)</label>
-                        <input type="range" id="maxDuration" name="maxDuration" min="1" max="3600" value="3600" oninput="document.getElementById('durationValue').textContent = this.value + 's'">
-                        <span id="durationValue" class="hint">3600s</span>
-                    </div>
-
+                    <!-- Search Term -->
                     <div class="form-group" style="flex-basis: 100%;">
-                        <label for="owner">Owner</label>
-                        <input type="text" id="owner" name="owner" placeholder="Search owner name or matric number...">
+                        <label for="searchTerm">Search Term</label>
+                        <input type="text" id="searchTerm" name="searchTerm" placeholder="Search by name or matric number...">
                     </div>
 
-                    <!-- Optional: Dominant Color filter (CBR feature) -->
+                    <!-- Media Filters -->
                     <div class="form-group" style="flex-basis: 100%;">
-                        <label for="dominantColor">Dominant Color (CBR)</label>
-                        <input type="color" id="dominantColor" name="dominantColor" value="#000000">
+                        <label>Media Availability</label>
+                        <div style="display:flex;gap:15px;flex-wrap:wrap;margin-top:5px;">
+                            <label style="color:var(--text-secondary);font-size:0.9rem;">
+                                <input type="checkbox" name="hasPhoto" value="1"> Has Photo
+                            </label>
+                            <label style="color:var(--text-secondary);font-size:0.9rem;">
+                                <input type="checkbox" name="hasDoc" value="1"> Has Document
+                            </label>
+                            <label style="color:var(--text-secondary);font-size:0.9rem;">
+                                <input type="checkbox" name="hasAudio" value="1"> Has Audio
+                            </label>
+                            <label style="color:var(--text-secondary);font-size:0.9rem;">
+                                <input type="checkbox" name="hasVideo" value="1"> Has Video
+                            </label>
+                        </div>
                     </div>
 
                     <div class="filter-actions" style="flex-basis: 100%;">
@@ -95,7 +83,7 @@ File Type, Upload Date, File Size, Owner/Uploader, Duration, Resolution.
                 </form>
 
                 <div class="hint">
-                    <strong>Note:</strong> Results are filtered server-side via <code>abr_filter.php</code> using file type, size, resolution, duration, and owner.
+                    <strong>Note:</strong> Results are filtered server-side via <code>abr_filter.php</code> using group, search term, and media availability filters.
                 </div>
             </div>
 
