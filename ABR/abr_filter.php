@@ -2,6 +2,7 @@
 // ==========================================================================
 // abr_filter.php
 // Backend for abr_search.html's filter form (called via script.js's fetch()).
+// Now searches mmdb2026.vstu table only.
 // ==========================================================================
 
 header('Content-Type: application/json');
@@ -9,39 +10,34 @@ header('Content-Type: application/json');
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/db_queries.php';
 
-// Use the appropriate connection
 global $conn;
 
 try {
-    // ✅ FIXED: Check if connection exists
     if ($conn === null) {
         throw new Exception("Database connection is not available.");
     }
 
     // Capture and validate all inputs
-    $fileType    = $_POST['fileType'] ?? 'All';
-    $maxSize     = isset($_POST['maxSize']) ? (float) $_POST['maxSize'] : 500;   // MB, from slider
-    $owner       = trim($_POST['owner'] ?? '');
-    $resolution  = $_POST['resolution'] ?? 'All';
-    $maxDuration = isset($_POST['maxDuration']) ? (int) $_POST['maxDuration'] : 3600; // seconds
+    $group       = $_POST['group'] ?? '';
+    $searchTerm  = $_POST['searchTerm'] ?? '';
+    $hasPhoto    = isset($_POST['hasPhoto']) ? true : false;
+    $hasDoc      = isset($_POST['hasDoc']) ? true : false;
+    $hasAudio    = isset($_POST['hasAudio']) ? true : false;
+    $hasVideo    = isset($_POST['hasVideo']) ? true : false;
 
-    $allowedTypes = ['All', 'image', 'audio', 'video', 'document'];
-    if (!in_array($fileType, $allowedTypes, true)) {
-        throw new Exception("Invalid file type filter supplied.");
-    }
-    if ($maxSize <= 0)     { $maxSize = 500; }
-    if ($maxDuration <= 0) { $maxDuration = 3600; }
-
-    // Check if database is available
     $db_available = isDbConnected();
     if (!$db_available) {
         throw new Exception("Database connection is not available.");
     }
 
     // Execute ABR filter search using centralized function
-    $rows = abrFilterSearch($conn, $fileType, $maxSize, $owner, $resolution, $maxDuration);
+    $rows = abrFilterSearch($conn, $group, $searchTerm, $hasPhoto, $hasDoc, $hasAudio, $hasVideo);
 
-    echo json_encode(['success' => true, 'data' => $rows]);
+    if (empty($rows)) {
+        echo json_encode(['success' => true, 'data' => [], 'message' => 'No results found matching your criteria.']);
+    } else {
+        echo json_encode(['success' => true, 'data' => $rows, 'count' => count($rows)]);
+    }
 
 } catch (mysqli_sql_exception $e) {
     http_response_code(500);
