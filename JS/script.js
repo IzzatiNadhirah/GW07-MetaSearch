@@ -128,10 +128,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ======================================================================
-    // 5. UTILITY: Display results in grid (ABR)
+    // 5. UTILITY: Display results in grid (ABR) - Now displays student data
     // ======================================================================
-    function displayResults(assets, container) {
-        if (!assets || assets.length === 0) {
+    function displayResults(students, container) {
+        if (!students || students.length === 0) {
             container.innerHTML = `
                 <div class="no-results">
                     <span class="icon">🔍</span>
@@ -143,51 +143,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let html = '';
-        assets.forEach(function(asset) {
-            // Determine file type badge color
-            let badgeColor = 'bg-secondary';
-            let icon = 'fa-file';
-            if (asset.file_type === 'image') {
-                badgeColor = 'bg-primary';
-                icon = 'fa-file-image';
-            } else if (asset.file_type === 'video') {
-                badgeColor = 'bg-success';
-                icon = 'fa-file-video';
-            } else if (asset.file_type === 'audio') {
-                badgeColor = 'bg-warning';
-                icon = 'fa-file-audio';
-            } else if (asset.file_type === 'document') {
-                badgeColor = 'bg-danger';
-                icon = 'fa-file-lines';
-            }
-
-            // Get display values
-            const displayResolution = asset.video_resolution || asset.img_resolution || 'N/A';
-            const displayDuration = asset.video_duration_seconds || asset.audio_duration_seconds || 'N/A';
-            const ownerName = asset.owner_name || asset.full_name || asset.matric_number || 'Unknown';
-            const fileSizeMB = (asset.file_size_kb / 1024).toFixed(2);
-
+        students.forEach(function(student) {
+            // Build student card with all available data
             html += `
-                <div class="result-card">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">
-                        <i class="fa-solid ${icon}" style="font-size:1.2rem;color:var(--accent);"></i>
-                        <span class="badge ${badgeColor}" style="font-size:0.7rem;">${asset.file_type.toUpperCase()}</span>
+                <div class="result-card" style="background:var(--bg-panel);border:1px solid var(--border-color);border-radius:8px;padding:1rem;transition:transform 0.15s,border-color 0.15s;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+                        <div style="width:50px;height:50px;border-radius:50%;background:var(--bg-primary);border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                            ${student.photoStu ? `<img src="${escapeHtml(student.photoStu)}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.innerHTML='<i class=\\'fa-solid fa-user\\' style=\\'color:var(--accent);font-size:1.5rem;\\'></i>';">` : `<i class="fa-solid fa-user" style="color:var(--accent);font-size:1.5rem;"></i>`}
+                        </div>
+                        <div>
+                            <h4 style="color:var(--accent);font-size:1rem;margin-bottom:2px;">${escapeHtml(student.full_name)}</h4>
+                            <p style="color:var(--text-muted);font-size:0.8rem;margin:0;"><strong>Matric:</strong> ${escapeHtml(student.matric_no)}</p>
+                        </div>
                     </div>
-                    <h4>${escapeHtml(asset.title || asset.file_name)}</h4>
-                    <p><strong>File:</strong> ${escapeHtml(asset.file_name)}</p>
-                    <p><strong>Size:</strong> ${fileSizeMB} MB</p>
-                    <p><strong>Owner:</strong> ${escapeHtml(ownerName)}</p>
-                    <!-- Student Information from vstu table -->
-                    ${asset.full_name ? `<p><strong>Student:</strong> ${escapeHtml(asset.full_name)}</p>` : ''}
-                    ${asset.matric_no ? `<p><strong>Matric:</strong> ${escapeHtml(asset.matric_no)}</p>` : ''}
-                    ${asset.group_no ? `<p><strong>Group:</strong> ${escapeHtml(asset.group_no)}</p>` : ''}
-                    ${asset.phone_no ? `<p><strong>Phone:</strong> ${escapeHtml(asset.phone_no)}</p>` : ''}
-                    ${asset.life_motto ? `<p><strong>Motto:</strong> "${escapeHtml(asset.life_motto)}"</p>` : ''}
-                    <p><strong>Resolution:</strong> ${displayResolution}</p>
-                    <p><strong>Duration:</strong> ${displayDuration !== 'N/A' ? displayDuration + 's' : 'N/A'}</p>
-                    ${asset.dominant_color ? `<p><strong>Color:</strong> <span style="display:inline-block;width:20px;height:20px;background:${escapeHtml(asset.dominant_color)};border-radius:4px;vertical-align:middle;border:1px solid #333;"></span> ${escapeHtml(asset.dominant_color)}</p>` : ''}
-                    <p><small>Uploaded: ${asset.upload_date}</small></p>
-                    ${asset.file_path ? `<a href="${escapeHtml(asset.file_path)}" target="_blank" class="btn btn-primary" style="padding:6px 15px;font-size:0.8rem;min-width:auto;margin-top:8px;display:inline-block;">View File</a>` : ''}
+                    <p style="color:var(--text-muted);font-size:0.8rem;margin:2px 0;"><strong>Group:</strong> ${escapeHtml(student.group_no || 'N/A')}</p>
+                    ${student.life_motto ? `<p style="color:var(--text-muted);font-size:0.8rem;margin:2px 0;font-style:italic;">"${escapeHtml(student.life_motto)}"</p>` : ''}
+                    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+                        ${student.photoStu ? `<a href="${escapeHtml(student.photoStu)}" target="_blank" class="badge" style="background:var(--accent);color:var(--bg-primary);padding:2px 10px;border-radius:12px;font-size:0.7rem;text-decoration:none;font-weight:600;"><i class="fa-solid fa-image"></i> Photo</a>` : ''}
+                        ${student.docStu ? `<a href="${escapeHtml(student.docStu)}" target="_blank" class="badge" style="background:#dc3545;color:#fff;padding:2px 10px;border-radius:12px;font-size:0.7rem;text-decoration:none;font-weight:600;"><i class="fa-solid fa-file-pdf"></i> Doc</a>` : ''}
+                        ${student.audioStu ? `<a href="${escapeHtml(student.audioStu)}" target="_blank" class="badge" style="background:#ffc107;color:#000;padding:2px 10px;border-radius:12px;font-size:0.7rem;text-decoration:none;font-weight:600;"><i class="fa-solid fa-music"></i> Audio</a>` : ''}
+                        ${student.videoStu ? `<a href="${escapeHtml(student.videoStu)}" target="_blank" class="badge" style="background:#198754;color:#fff;padding:2px 10px;border-radius:12px;font-size:0.7rem;text-decoration:none;font-weight:600;"><i class="fa-solid fa-video"></i> Video</a>` : ''}
+                    </div>
                 </div>
             `;
         });
