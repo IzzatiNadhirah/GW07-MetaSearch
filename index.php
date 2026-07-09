@@ -10,10 +10,10 @@ require_once 'config/db_connect.php';
 require_once 'config/db_queries.php';
 require_once 'sync_engine.php';
 
-// ✅ FIXED: Get connection from GLOBALS array
+// Get connection from GLOBALS array
 $conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
 
-// ✅ FIXED: Check if connection exists and is valid
+// Check if connection exists and is valid
 if ($conn === null || !$conn->ping()) {
     $conn_error = "Database connection is not available.";
 } else {
@@ -25,7 +25,6 @@ if ($conn === null || !$conn->ping()) {
 // --------------------------------------------------------------------------
 $db_available = ($conn !== null && $conn->ping());
 
-// If DB is not available, log it
 if (!$db_available) {
     error_log("WARNING: Database connection is not available. Student data will be limited.");
 }
@@ -33,32 +32,26 @@ if (!$db_available) {
 // --------------------------------------------------------------------------
 // 1. Get Group from URL parameter or POST (from dropdown)
 // --------------------------------------------------------------------------
-// Get all available groups from mmdb2026.vstu for the dropdown
 $allGroups = [];
 if ($db_available) {
     $allGroups = getGroups($conn);
 }
 
-// Get selected group from POST or GET
 $selectedGroup = isset($_POST['group_select']) ? $_POST['group_select'] : (isset($_GET['group']) ? $_GET['group'] : '');
 
-// Sanitize the selected group (only allow alphanumeric and dash)
 if (!empty($selectedGroup)) {
     $selectedGroup = preg_replace('/[^a-zA-Z0-9\-]/', '', $selectedGroup);
 }
 
-// Check if the selected group exists in the available groups list
 $groupExists = false;
 if (!empty($selectedGroup) && !empty($allGroups)) {
     $groupExists = in_array($selectedGroup, $allGroups);
 }
 
-// If the selected group doesn't exist in the list, treat as "No group selected"
 if (empty($selectedGroup) || !$groupExists) {
-    $selectedGroup = ''; // No group selected
+    $selectedGroup = '';
 }
 
-// Set the group for display (empty if no group selected)
 $group = $selectedGroup;
 
 // --------------------------------------------------------------------------
@@ -92,16 +85,16 @@ if ($db_available && !empty($group)) {
 }
 
 // --------------------------------------------------------------------------
-// 4. Get Dashboard Statistics
+// 4. Get Dashboard Statistics from vstu
 // --------------------------------------------------------------------------
-$counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
+$stats = ['total_students' => 0, 'groups' => 0, 'with_photo' => 0, 'with_doc' => 0, 'with_audio' => 0, 'with_video' => 0];
 $studentCount = 0;
-$recentAssets = [];
+$allStudents = [];
 
 if ($db_available) {
-    $counts = getAssetStatistics($conn);
-    $studentCount = getStudentCount($conn);
-    $recentAssets = getRecentUploads($conn);
+    $stats = getDashboardStats($conn);
+    $studentCount = $stats['total_students'];
+    $allStudents = getAllStudents($conn, 20);
 } else {
     $studentCount = 'N/A';
 }
@@ -112,15 +105,16 @@ if ($db_available) {
 $searchResults = [];
 $searchPerformed = false;
 
-if ($db_available) {
-    $fileType = $_GET['file_type'] ?? '';
+if ($db_available && isset($_GET['search'])) {
+    $groupFilter = $_GET['group_filter'] ?? '';
     $query = $_GET['query'] ?? '';
-    $searchData = searchAssets($conn, $fileType, $query, $db_available);
-    $searchResults = $searchData['results'];
-    $searchPerformed = $searchData['performed'];
-} else {
-    $searchResults = [];
-    $searchPerformed = false;
+    $hasPhoto = isset($_GET['has_photo']) ? true : false;
+    $hasDoc = isset($_GET['has_doc']) ? true : false;
+    $hasAudio = isset($_GET['has_audio']) ? true : false;
+    $hasVideo = isset($_GET['has_video']) ? true : false;
+    
+    $searchResults = abrFilterSearch($conn, $groupFilter, $query, $hasPhoto, $hasDoc, $hasAudio, $hasVideo);
+    $searchPerformed = true;
 }
 ?>
 <!DOCTYPE html>
@@ -133,7 +127,6 @@ if ($db_available) {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <style>
-        /* Additional styles for the combined page */
         .group-badge {
             background: rgba(0, 210, 255, 0.15);
             border: 1px solid var(--accent);
@@ -216,10 +209,6 @@ if ($db_available) {
         .member-card .media-icons .badge:hover {
             transform: scale(1.05);
             opacity: 0.9;
-        }
-        .member-card .media-icons .badge a {
-            color: inherit;
-            text-decoration: none;
         }
         .sync-status {
             font-size: 0.85rem;
@@ -304,8 +293,6 @@ if ($db_available) {
             margin-bottom: 4px;
             display: block;
         }
-
-        /* Card text colors */
         .card-custom h6 {
             color: #cbd5e1 !important;
         }
@@ -317,6 +304,23 @@ if ($db_available) {
         }
         .text-white-50 {
             color: #94a3b8 !important;
+        }
+        .filter-section {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-section .form-check {
+            color: #cbd5e1;
+        }
+        .filter-section .form-check-input {
+            background-color: var(--bg-primary);
+            border-color: var(--border-color);
+        }
+        .filter-section .form-check-input:checked {
+            background-color: var(--accent);
+            border-color: var(--accent);
         }
     </style>
 </head>
@@ -454,49 +458,49 @@ if ($db_available) {
             <?php endif; ?>
 
             <!-- ============================================================
-            STATISTICS CARDS
+            STATISTICS CARDS (from vstu only)
             ============================================================ -->
             <div class="row g-4 mb-5">
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-users text-cyan stat-icon"></i>
                         <h6 class="text-muted mt-2 stat-label">Total Students</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $studentCount; ?></h2>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['total_students']; ?></h2>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card-custom p-3 text-center">
+                        <i class="fa-solid fa-layer-group text-info stat-icon"></i>
+                        <h6 class="text-muted mt-2 stat-label">Total Groups</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['groups']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-image text-primary stat-icon"></i>
-                        <h6 class="text-muted mt-2 stat-label">Images</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['image']; ?></h2>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="card-custom p-3 text-center">
-                        <i class="fa-solid fa-music text-warning stat-icon"></i>
-                        <h6 class="text-muted mt-2 stat-label">Audio</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['audio']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">With Photos</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['with_photo']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-file-pdf text-danger stat-icon"></i>
-                        <h6 class="text-muted mt-2 stat-label">Documents</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['document']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">With Documents</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['with_doc']; ?></h2>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="card-custom p-3 text-center">
+                        <i class="fa-solid fa-music text-warning stat-icon"></i>
+                        <h6 class="text-muted mt-2 stat-label">With Audio</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['with_audio']; ?></h2>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="card-custom p-3 text-center">
                         <i class="fa-solid fa-video text-success stat-icon"></i>
-                        <h6 class="text-muted mt-2 stat-label">Videos</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['video']; ?></h2>
-                    </div>
-                </div>
-                <div class="col-md-2">
-                    <div class="card-custom p-3 text-center">
-                        <i class="fa-solid fa-database text-info stat-icon"></i>
-                        <h6 class="text-muted mt-2 stat-label">Total Assets</h6>
-                        <h2 class="fw-bold text-white stat-value"><?php echo $counts['total']; ?></h2>
+                        <h6 class="text-muted mt-2 stat-label">With Video</h6>
+                        <h2 class="fw-bold text-white stat-value"><?php echo $stats['with_video']; ?></h2>
                     </div>
                 </div>
             </div>
@@ -556,7 +560,7 @@ if ($db_available) {
                                                 "<?php echo htmlspecialchars($member['life_motto']); ?>"
                                             </div>
                                         <?php endif; ?>
-                                        <!-- Media Icons - Clickable to open media -->
+                                        <!-- Media Icons -->
                                         <div class="media-icons">
                                             <?php if (!empty($member['photoStu'])): ?>
                                                 <a href="<?php echo htmlspecialchars($member['photoStu']); ?>" target="_blank" class="badge bg-primary" title="View Photo">
@@ -604,42 +608,63 @@ if ($db_available) {
             </div>
 
             <!-- ============================================================
-            SEARCH SECTION (ABR + TBR Combined)
+            SEARCH SECTION (ABR + TBR Combined) - Now searches vstu only
             ============================================================ -->
             <section class="card-custom p-4 mb-4">
                 <h5 class="fw-bold mb-3 text-cyan">
                     <i class="fa-solid fa-magnifying-glass me-2"></i>
-                    Intelligent Metadata Search Engine
+                    Intelligent Student Search Engine
                 </h5>
                 <form method="GET" class="row g-3">
-                    <div class="col-md-5">
+                    <div class="col-md-4">
                         <input type="text" name="query" class="form-control bg-dark text-white border-secondary" 
-                               placeholder="Search by filename, title, or matric number..." 
+                               placeholder="Search by name or matric number..." 
                                value="<?php echo htmlspecialchars($_GET['query'] ?? ''); ?>">
                     </div>
-                    <div class="col-md-4">
-                        <select name="file_type" class="form-select bg-dark text-white border-secondary">
-                            <option value="">All Media Formats (ABR Filter)</option>
-                            <option value="image" <?php echo (($_GET['file_type'] ?? '') == 'image') ? 'selected' : ''; ?>>Image</option>
-                            <option value="audio" <?php echo (($_GET['file_type'] ?? '') == 'audio') ? 'selected' : ''; ?>>Audio</option>
-                            <option value="video" <?php echo (($_GET['file_type'] ?? '') == 'video') ? 'selected' : ''; ?>>Video</option>
-                            <option value="document" <?php echo (($_GET['file_type'] ?? '') == 'document') ? 'selected' : ''; ?>>Document</option>
+                    <div class="col-md-3">
+                        <select name="group_filter" class="form-select bg-dark text-white border-secondary">
+                            <option value="">All Groups (ABR Filter)</option>
+                            <?php foreach ($allGroups as $g): ?>
+                                <option value="<?php echo htmlspecialchars($g); ?>" <?php echo (($_GET['group_filter'] ?? '') == $g) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($g); ?>
+                                </option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-md-3 d-grid">
-                        <button type="submit" class="btn btn-info fw-bold">
-                            <i class="fa-solid fa-search me-2"></i>Execute Search
+                    <div class="col-md-3">
+                        <div class="filter-section">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="has_photo" id="has_photo" <?php echo isset($_GET['has_photo']) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="has_photo">Photo</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="has_doc" id="has_doc" <?php echo isset($_GET['has_doc']) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="has_doc">Doc</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="has_audio" id="has_audio" <?php echo isset($_GET['has_audio']) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="has_audio">Audio</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="has_video" id="has_video" <?php echo isset($_GET['has_video']) ? 'checked' : ''; ?>>
+                                <label class="form-check-label" for="has_video">Video</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-2 d-grid">
+                        <button type="submit" name="search" class="btn btn-info fw-bold">
+                            <i class="fa-solid fa-search me-2"></i>Search
                         </button>
                     </div>
                 </form>
                 <div class="text-muted small mt-2">
                     <i class="fa-regular fa-lightbulb me-1"></i>
-                    Tip: Leave both fields empty to view all recent assets
+                    Search students by name, matric number, or filter by group and media availability.
                 </div>
             </section>
 
             <!-- ============================================================
-            SEARCH RESULTS / RECENT ASSETS
+            SEARCH RESULTS / ALL STUDENTS
             ============================================================ -->
             <div class="card-custom p-4">
                 <h5 class="fw-bold text-white mb-3">
@@ -647,7 +672,8 @@ if ($db_available) {
                         <i class="fa-solid fa-search me-2"></i>Search Results
                         <span class="badge bg-info text-dark ms-2"><?php echo count($searchResults); ?> found</span>
                     <?php else: ?>
-                        <i class="fa-solid fa-clock me-2"></i>Recent Uploads
+                        <i class="fa-solid fa-users me-2"></i>All Students
+                        <span class="badge bg-info text-dark ms-2"><?php echo count($allStudents); ?> total</span>
                     <?php endif; ?>
                 </h5>
                 
@@ -655,60 +681,75 @@ if ($db_available) {
                     <table class="table table-dark table-hover align-middle m-0">
                         <thead>
                             <tr class="text-secondary border-secondary">
-                                <th>Matric</th>
-                                <th>Owner</th>
-                                <th>Title / File Name</th>
-                                <th>Type</th>
-                                <th>Size</th>
-                                <th>Upload Date</th>
-                                <th>Action</th>
+                                <th>Matric No</th>
+                                <th>Full Name</th>
+                                <th>Group</th>
+                                <th>Photo</th>
+                                <th>Doc</th>
+                                <th>Audio</th>
+                                <th>Video</th>
+                                <th>Motto</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php 
-                            $displayAssets = $searchPerformed ? $searchResults : $recentAssets;
-                            if (empty($displayAssets)): 
+                            $displayStudents = $searchPerformed ? $searchResults : $allStudents;
+                            if (empty($displayStudents)): 
                             ?>
                                 <tr>
-                                    <td colspan="7" class="text-center text-muted py-4">
+                                    <td colspan="8" class="text-center text-muted py-4">
                                         <i class="fa-regular fa-folder-open me-2"></i>
-                                        <?php echo $searchPerformed ? 'No results found for your search.' : 'No assets found in the database.'; ?>
+                                        <?php echo $searchPerformed ? 'No results found for your search.' : 'No students found in the database.'; ?>
                                     </td>
                                 </tr>
                             <?php else: ?>
-                                <?php foreach ($displayAssets as $asset): ?>
+                                <?php foreach ($displayStudents as $student): ?>
                                     <tr class="border-secondary">
                                         <td class="fw-bold text-info">
-                                            <?php echo htmlspecialchars($asset['matric_number']); ?>
+                                            <?php echo htmlspecialchars($student['matric_no']); ?>
                                         </td>
-                                        <td><?php echo htmlspecialchars($asset['owner_name'] ?? $asset['matric_number']); ?></td>
+                                        <td><?php echo htmlspecialchars($student['full_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($student['group_no'] ?? '-'); ?></td>
                                         <td>
-                                            <code><?php echo htmlspecialchars($asset['file_name']); ?></code>
-                                            <?php if (!empty($asset['title']) && $asset['title'] !== $asset['file_name']): ?>
-                                                <br><small class="text-muted"><?php echo htmlspecialchars($asset['title']); ?></small>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <span class="badge <?php 
-                                                echo $asset['file_type'] === 'video' ? 'bg-success' : 
-                                                    ($asset['file_type'] === 'audio' ? 'bg-warning' : 
-                                                    ($asset['file_type'] === 'image' ? 'bg-primary' : 'bg-danger')); 
-                                            ?>">
-                                                <?php echo strtoupper($asset['file_type']); ?>
-                                            </span>
-                                        </td>
-                                        <td><?php echo number_format($asset['file_size_kb'], 2); ?> KB</td>
-                                        <td><?php echo htmlspecialchars($asset['upload_date']); ?></td>
-                                        <td>
-                                            <?php if (!empty($asset['file_path'])): ?>
-                                                <a href="<?php echo htmlspecialchars($asset['file_path']); ?>" 
-                                                   target="_blank" 
-                                                   class="btn btn-sm btn-outline-light">
-                                                    <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>View
+                                            <?php if (!empty($student['photoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($student['photoStu']); ?>" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fa-solid fa-image"></i>
                                                 </a>
                                             <?php else: ?>
-                                                <span class="text-muted">N/A</span>
+                                                <span class="text-muted">-</span>
                                             <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($student['docStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($student['docStu']); ?>" target="_blank" class="btn btn-sm btn-outline-danger">
+                                                    <i class="fa-solid fa-file-pdf"></i>
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($student['audioStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($student['audioStu']); ?>" target="_blank" class="btn btn-sm btn-outline-warning">
+                                                    <i class="fa-solid fa-music"></i>
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($student['videoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($student['videoStu']); ?>" target="_blank" class="btn btn-sm btn-outline-success">
+                                                    <i class="fa-solid fa-video"></i>
+                                                </a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <span class="text-muted small">
+                                                <?php echo !empty($student['life_motto']) ? '"' . htmlspecialchars(substr($student['life_motto'], 0, 30)) . '"' : '-'; ?>
+                                            </span>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -735,7 +776,6 @@ SCRIPTS
 ============================================================== -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Live Clock
     function updateClock() {
         const now = new Date();
         const timeString = now.toLocaleTimeString('en-US', { hour12: false });
@@ -750,7 +790,7 @@ SCRIPTS
     console.log('MetaSearch: Index page loaded successfully!');
     console.log('Group: <?php echo htmlspecialchars($group) ?: 'None selected'; ?>');
     console.log('Total Members: <?php echo count($members); ?>');
-    console.log('Total Assets: <?php echo $counts['total']; ?>');
+    console.log('Total Students: <?php echo $stats['total_students']; ?>');
     console.log('Database Available: <?php echo $db_available ? 'Yes' : 'No'; ?>');
 </script>
 
