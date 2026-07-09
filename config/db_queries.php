@@ -47,23 +47,58 @@ function getGroupMembers($conn, $group) {
 }
 
 // ==========================================================================
-// QUERY 3: Get Asset Statistics
+// QUERY 3: Get Dashboard Statistics (from vstu only)
 // ==========================================================================
-function getAssetStatistics($conn) {
-    $counts = ['image' => 0, 'video' => 0, 'audio' => 0, 'document' => 0, 'total' => 0];
+function getDashboardStats($conn) {
+    $stats = [
+        'total_students' => 0,
+        'groups' => 0,
+        'with_photo' => 0,
+        'with_doc' => 0,
+        'with_audio' => 0,
+        'with_video' => 0
+    ];
     try {
-        $sql = "SELECT file_type, COUNT(*) as total FROM multimedia_asset GROUP BY file_type";
-        $result = $conn->query($sql);
+        // Total students
+        $result = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu");
         if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $counts[$row['file_type']] = $row['total'];
-                $counts['total'] += $row['total'];
-            }
+            $stats['total_students'] = $result->fetch_assoc()['total'];
         }
+        
+        // Total groups
+        $result = $conn->query("SELECT COUNT(DISTINCT group_no) as total FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != ''");
+        if ($result) {
+            $stats['groups'] = $result->fetch_assoc()['total'];
+        }
+        
+        // Students with photo
+        $result = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu WHERE photoStu IS NOT NULL AND photoStu != ''");
+        if ($result) {
+            $stats['with_photo'] = $result->fetch_assoc()['total'];
+        }
+        
+        // Students with document
+        $result = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu WHERE docStu IS NOT NULL AND docStu != ''");
+        if ($result) {
+            $stats['with_doc'] = $result->fetch_assoc()['total'];
+        }
+        
+        // Students with audio
+        $result = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu WHERE audioStu IS NOT NULL AND audioStu != ''");
+        if ($result) {
+            $stats['with_audio'] = $result->fetch_assoc()['total'];
+        }
+        
+        // Students with video
+        $result = $conn->query("SELECT COUNT(*) as total FROM mmdb2026.vstu WHERE videoStu IS NOT NULL AND videoStu != ''");
+        if ($result) {
+            $stats['with_video'] = $result->fetch_assoc()['total'];
+        }
+        
     } catch (mysqli_sql_exception $e) {
-        error_log("Failed to get asset statistics: " . $e->getMessage());
+        error_log("Failed to get dashboard stats: " . $e->getMessage());
     }
-    return $counts;
+    return $stats;
 }
 
 // ==========================================================================
@@ -84,89 +119,195 @@ function getStudentCount($conn) {
 }
 
 // ==========================================================================
-// QUERY 5: Get Recent Uploads
+// QUERY 5: Get All Students (Recent/All)
 // ==========================================================================
-function getRecentUploads($conn) {
-    $assets = [];
+function getAllStudents($conn, $limit = 20) {
+    $students = [];
     try {
-        $sql = "SELECT ma.*, v.full_name AS owner_name 
-                FROM multimedia_asset ma
-                LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-                ORDER BY ma.last_modified DESC 
-                LIMIT 10";
-        $result = $conn->query($sql);
-        if ($result) {
+        $sql = "SELECT * FROM mmdb2026.vstu ORDER BY full_name ASC LIMIT ?";
+        $stmt = $conn->prepare($sql);
+        if ($stmt) {
+            $stmt->bind_param("i", $limit);
+            $stmt->execute();
+            $result = $stmt->get_result();
             while ($row = $result->fetch_assoc()) {
-                $assets[] = $row;
+                $students[] = $row;
             }
+            $stmt->close();
         }
     } catch (mysqli_sql_exception $e) {
-        error_log("Failed to get recent uploads: " . $e->getMessage());
+        error_log("Failed to get all students: " . $e->getMessage());
     }
-    return $assets;
+    return $students;
 }
 
 // ==========================================================================
-// QUERY 6: Search Assets (ABR + TBR Combined)
+// QUERY 6: Search Students (ABR - Attribute-Based Retrieval)
 // ==========================================================================
-function searchAssets($conn, $fileType, $query, $db_available) {
-    $results = [];
-    $whereClauses = [];
-    $params = [];
-    $types = "";
-    $searchPerformed = false;
+function abrFilterSearch($conn, $group, $searchTerm, $hasPhoto, $hasDoc, $hasAudio, $hasVideo) {
+    $rows = [];
+    try {
+        $sql = "SELECT * FROM mmdb2026.vstu WHERE 1=1";
+        $params = [];
+        $types = "";
 
-    if (!empty($fileType)) {
-        $whereClauses[] = "ma.file_type = ?";
-        $params[] = $fileType;
-        $types .= "s";
-        $searchPerformed = true;
-    }
-
-    if (!empty($query)) {
-        $searchTerm = '%' . $query . '%';
-        $whereClauses[] = "(ma.file_name LIKE ? OR ma.title LIKE ? OR ma.matric_number LIKE ?)";
-        $params[] = $searchTerm;
-        $params[] = $searchTerm;
-        $params[] = $searchTerm;
-        $types .= "sss";
-        $searchPerformed = true;
-    }
-
-    if ($searchPerformed && $db_available) {
-        try {
-            $sql = "SELECT ma.*, v.full_name AS owner_name 
-                    FROM multimedia_asset ma
-                    LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no";
-            
-            if (count($whereClauses) > 0) {
-                $sql .= " WHERE " . implode(" AND ", $whereClauses);
-            }
-            
-            $sql .= " ORDER BY ma.last_modified DESC LIMIT 15";
-            
-            $stmt = $conn->prepare($sql);
-            if ($stmt) {
-                if (!empty($params)) {
-                    $stmt->bind_param($types, ...$params);
-                }
-                $stmt->execute();
-                $result = $stmt->get_result();
-                while ($row = $result->fetch_assoc()) {
-                    $results[] = $row;
-                }
-                $stmt->close();
-            }
-        } catch (mysqli_sql_exception $e) {
-            error_log("Search error: " . $e->getMessage());
+        if (!empty($group) && $group !== 'All') {
+            $sql .= " AND group_no = ?";
+            $params[] = $group;
+            $types .= "s";
         }
+
+        if (!empty($searchTerm)) {
+            $sql .= " AND (full_name LIKE ? OR matric_no LIKE ?)";
+            $searchLike = '%' . $searchTerm . '%';
+            $params[] = $searchLike;
+            $params[] = $searchLike;
+            $types .= "ss";
+        }
+
+        if ($hasPhoto) {
+            $sql .= " AND photoStu IS NOT NULL AND photoStu != ''";
+        }
+
+        if ($hasDoc) {
+            $sql .= " AND docStu IS NOT NULL AND docStu != ''";
+        }
+
+        if ($hasAudio) {
+            $sql .= " AND audioStu IS NOT NULL AND audioStu != ''";
+        }
+
+        if ($hasVideo) {
+            $sql .= " AND videoStu IS NOT NULL AND videoStu != ''";
+        }
+
+        $sql .= " ORDER BY full_name ASC";
+
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            throw new Exception("Failed to prepare query: " . $conn->error);
+        }
+
+        if (!empty($params)) {
+            $stmt->bind_param($types, ...$params);
+        }
+
+        $stmt->execute();
+        $result = $stmt->get_result();
+
+        while ($row = $result->fetch_assoc()) {
+            $rows[] = $row;
+        }
+        $stmt->close();
+
+    } catch (mysqli_sql_exception $e) {
+        error_log("ABR filter error: " . $e->getMessage());
+        throw $e;
+    } catch (Exception $e) {
+        error_log("ABR filter general error: " . $e->getMessage());
+        throw $e;
     }
-    
-    return ['results' => $results, 'performed' => $searchPerformed];
+    return $rows;
 }
 
 // ==========================================================================
-// QUERY 7: Get Full vstu Data by Matric Number
+// QUERY 7: Search Bar Filter (Alternative ABR Endpoint)
+// ==========================================================================
+function searchBarFilter($conn, $group, $searchTerm, $hasPhoto, $hasDoc, $hasAudio, $hasVideo) {
+    return abrFilterSearch($conn, $group, $searchTerm, $hasPhoto, $hasDoc, $hasAudio, $hasVideo);
+}
+
+// ==========================================================================
+// QUERY 8: TBR - Text-Based Retrieval Search
+// ==========================================================================
+function tbrSearch($conn, $query_term) {
+    $results = [];
+    try {
+        $sql = "SELECT * FROM mmdb2026.vstu 
+                WHERE full_name LIKE ? 
+                OR matric_no LIKE ? 
+                OR group_no LIKE ? 
+                OR life_motto LIKE ?
+                ORDER BY full_name ASC";
+        
+        $stmt = mysqli_prepare($conn, $sql);
+        if ($stmt) {
+            $likeTerm = '%' . $query_term . '%';
+            mysqli_stmt_bind_param($stmt, "ssss", $likeTerm, $likeTerm, $likeTerm, $likeTerm);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            while ($row = $result->fetch_assoc()) {
+                $results[] = $row;
+            }
+            mysqli_stmt_close($stmt);
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("TBR search error: " . $e->getMessage());
+        throw $e;
+    }
+    return $results;
+}
+
+// ==========================================================================
+// QUERY 9: CBR - Content-Based Retrieval Search
+// ==========================================================================
+function cbrSearch($conn, $type, $value) {
+    $results = [];
+    try {
+        $sql = "";
+        $stmt = null;
+
+        switch ($type) {
+            case 'photo':
+                $sql = "SELECT * FROM mmdb2026.vstu WHERE photoStu IS NOT NULL AND photoStu != ''";
+                $stmt = mysqli_prepare($conn, $sql);
+                break;
+                
+            case 'doc':
+                $sql = "SELECT * FROM mmdb2026.vstu WHERE docStu IS NOT NULL AND docStu != ''";
+                $stmt = mysqli_prepare($conn, $sql);
+                break;
+                
+            case 'audio':
+                $sql = "SELECT * FROM mmdb2026.vstu WHERE audioStu IS NOT NULL AND audioStu != ''";
+                $stmt = mysqli_prepare($conn, $sql);
+                break;
+                
+            case 'video':
+                $sql = "SELECT * FROM mmdb2026.vstu WHERE videoStu IS NOT NULL AND videoStu != ''";
+                $stmt = mysqli_prepare($conn, $sql);
+                break;
+                
+            case 'motto':
+                $sql = "SELECT * FROM mmdb2026.vstu WHERE life_motto LIKE ?";
+                $stmt = mysqli_prepare($conn, $sql);
+                if ($stmt) {
+                    $likeValue = '%' . $value . '%';
+                    mysqli_stmt_bind_param($stmt, "s", $likeValue);
+                }
+                break;
+                
+            default:
+                throw new Exception("Unsupported CBR type: " . $type);
+        }
+
+        if ($stmt) {
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            while ($row = $result->fetch_assoc()) {
+                $results[] = $row;
+            }
+            mysqli_stmt_close($stmt);
+        }
+    } catch (mysqli_sql_exception $e) {
+        error_log("CBR search error: " . $e->getMessage());
+        throw $e;
+    }
+    return $results;
+}
+
+// ==========================================================================
+// QUERY 10: Get Student by Matric Number
 // ==========================================================================
 function getStudentByMatric($conn, $matric) {
     $student = null;
@@ -189,380 +330,21 @@ function getStudentByMatric($conn, $matric) {
 }
 
 // ==========================================================================
-// QUERY 8: Get All Students (for dropdown or display)
-// ==========================================================================
-function getAllStudents($conn) {
-    $students = [];
-    try {
-        $sql = "SELECT * FROM mmdb2026.vstu ORDER BY full_name ASC";
-        $result = $conn->query($sql);
-        if ($result) {
-            while ($row = $result->fetch_assoc()) {
-                $students[] = $row;
-            }
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("Failed to get all students: " . $e->getMessage());
-    }
-    return $students;
-}
-
-// ==========================================================================
-// QUERY 9: ABR Filter Search
-// ==========================================================================
-function abrFilterSearch($conn, $fileType, $maxSize, $owner, $resolution, $maxDuration) {
-    $rows = [];
-    try {
-        // Base query: join video_metadata for resolution/duration
-        // Query: SELECT a.*, v.*, vm.resolution, vm.duration_seconds
-        //        FROM multimedia_asset a
-        //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-        //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
-        //        WHERE a.file_size_kb <= ?
-        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
-        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
-        // audioStu, audioStu_date, videoStu, videoStu_date
-        $sql = "SELECT a.*, v.*, vm.resolution, vm.duration_seconds
-                FROM multimedia_asset a
-                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-                LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
-                WHERE a.file_size_kb <= ?";
-
-        $types  = "d";
-        $params = [$maxSize * 1024]; // convert MB (slider) -> KB (schema unit)
-
-        if ($fileType !== 'All') {
-            $sql .= " AND a.file_type = ?";
-            $types .= "s";
-            $params[] = $fileType;
-        }
-
-        if ($owner !== '') {
-            $sql .= " AND (v.full_name LIKE ? OR a.matric_number LIKE ?)";
-            $types .= "ss";
-            $likeOwner = '%' . $owner . '%';
-            $params[] = $likeOwner;
-            $params[] = $likeOwner;
-        }
-
-        if ($resolution !== 'All') {
-            $sql .= " AND vm.resolution = ?";
-            $types .= "s";
-            $params[] = $resolution;
-        }
-
-        // Only enforce duration cap on rows that actually have a duration (i.e. video/audio)
-        $sql .= " AND (vm.duration_seconds IS NULL OR vm.duration_seconds <= ?)";
-        $types .= "i";
-        $params[] = $maxDuration;
-
-        $stmt = $conn->prepare($sql);
-        if ($stmt === false) {
-            throw new Exception("Failed to prepare query: " . $conn->error);
-        }
-
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        while ($row = $result->fetch_assoc()) {
-            $rows[] = $row;
-        }
-        $stmt->close();
-    } catch (mysqli_sql_exception $e) {
-        error_log("ABR filter error: " . $e->getMessage());
-        throw $e;
-    }
-    return $rows;
-}
-
-// ==========================================================================
-// QUERY 10: Search Bar Filter (Alternative ABR Endpoint)
-// ==========================================================================
-function searchBarFilter($conn, $fileType, $maxSize, $owner, $resolution, $maxDuration) {
-    $rows = [];
-    try {
-        // Base query: join video_metadata for resolution/duration
-        // Query: SELECT a.*, v.*, vm.resolution, vm.duration_seconds
-        //        FROM multimedia_asset a
-        //        LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-        //        LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
-        //        WHERE a.file_size_kb <= ?
-        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
-        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
-        // audioStu, audioStu_date, videoStu, videoStu_date
-        $sql = "SELECT a.*, v.*, vm.resolution, vm.duration_seconds
-                FROM multimedia_asset a
-                LEFT JOIN video_metadata vm ON a.asset_id = vm.asset_id
-                LEFT JOIN mmdb2026.vstu v ON a.matric_number = v.matric_no
-                WHERE a.file_size_kb <= ?";
-
-        $types  = "d";
-        $params = [$maxSize * 1024]; // convert MB (slider) -> KB (schema unit)
-
-        if ($fileType !== 'All') {
-            $sql .= " AND a.file_type = ?";
-            $types .= "s";
-            $params[] = $fileType;
-        }
-
-        if ($owner !== '') {
-            $sql .= " AND (v.full_name LIKE ? OR a.matric_number LIKE ?)";
-            $types .= "ss";
-            $likeOwner = '%' . $owner . '%';
-            $params[] = $likeOwner;
-            $params[] = $likeOwner;
-        }
-
-        if ($resolution !== 'All') {
-            $sql .= " AND vm.resolution = ?";
-            $types .= "s";
-            $params[] = $resolution;
-        }
-
-        // Only enforce duration cap on rows that actually have a duration (i.e. video/audio)
-        $sql .= " AND (vm.duration_seconds IS NULL OR vm.duration_seconds <= ?)";
-        $types .= "i";
-        $params[] = $maxDuration;
-
-        $stmt = $conn->prepare($sql);
-        if ($stmt === false) {
-            throw new Exception("Failed to prepare query: " . $conn->error);
-        }
-
-        $stmt->bind_param($types, ...$params);
-        $stmt->execute();
-        $result = $stmt->get_result();
-
-        while ($row = $result->fetch_assoc()) {
-            $rows[] = $row;
-        }
-        $stmt->close();
-    } catch (mysqli_sql_exception $e) {
-        error_log("Search bar filter error: " . $e->getMessage());
-        throw $e;
-    }
-    return $rows;
-}
-
-// ==========================================================================
-// QUERY 11: CBR Image Search by Dominant Color
-// ==========================================================================
-function cbrImageSearch($conn, $value) {
-    $results = [];
-    try {
-        $sql = "
-        SELECT
-            ma.title,
-            ma.file_name,
-            ma.file_path,
-            im.width,
-            im.height,
-            im.resolution,
-            im.dominant_color
-        FROM multimedia_asset ma
-        JOIN image_metadata im ON ma.asset_id = im.asset_id
-        WHERE im.dominant_color LIKE ?
-        ";
-        $stmt = mysqli_prepare($conn, $sql);
-        if ($stmt) {
-            $likeValue = '%' . $value . '%';
-            mysqli_stmt_bind_param($stmt, "s", $likeValue);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            while ($row = $result->fetch_assoc()) {
-                $results[] = $row;
-            }
-            mysqli_stmt_close($stmt);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("CBR image search error: " . $e->getMessage());
-        throw $e;
-    }
-    return $results;
-}
-
-// ==========================================================================
-// QUERY 12: CBR Video Search by Duration
-// ==========================================================================
-function cbrVideoSearch($conn, $seconds) {
-    $results = [];
-    try {
-        $sql = "
-        SELECT
-            ma.title,
-            ma.file_name,
-            ma.file_path,
-            vm.resolution,
-            vm.duration_seconds,
-            CONCAT(FLOOR(vm.duration_seconds / 60), 'm ', vm.duration_seconds % 60, 's') as duration_formatted
-        FROM multimedia_asset ma
-        JOIN video_metadata vm ON ma.asset_id = vm.asset_id
-        WHERE vm.duration_seconds >= ?
-        ORDER BY vm.duration_seconds DESC
-        ";
-        $stmt = mysqli_prepare($conn, $sql);
-        if ($stmt) {
-            mysqli_stmt_bind_param($stmt, "i", $seconds);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            while ($row = $result->fetch_assoc()) {
-                $results[] = $row;
-            }
-            mysqli_stmt_close($stmt);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("CBR video search error: " . $e->getMessage());
-        throw $e;
-    }
-    return $results;
-}
-
-// ==========================================================================
-// QUERY 13: CBR Audio Search by Duration
-// ==========================================================================
-function cbrAudioSearch($conn, $seconds) {
-    $results = [];
-    try {
-        $sql = "
-        SELECT
-            ma.title,
-            ma.file_name,
-            ma.file_path,
-            am.duration_seconds,
-            CONCAT(FLOOR(am.duration_seconds / 60), 'm ', am.duration_seconds % 60, 's') as duration_formatted,
-            am.bitrate_kbps,
-            am.audio_format
-        FROM multimedia_asset ma
-        JOIN audio_metadata am ON ma.asset_id = am.asset_id
-        WHERE am.duration_seconds >= ?
-        ORDER BY am.duration_seconds DESC
-        ";
-        $stmt = mysqli_prepare($conn, $sql);
-        if ($stmt) {
-            mysqli_stmt_bind_param($stmt, "i", $seconds);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            while ($row = $result->fetch_assoc()) {
-                $results[] = $row;
-            }
-            mysqli_stmt_close($stmt);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("CBR audio search error: " . $e->getMessage());
-        throw $e;
-    }
-    return $results;
-}
-
-// ==========================================================================
-// QUERY 14: CBR Document Search by Page Count
-// ==========================================================================
-function cbrDocumentSearch($conn, $pageCount) {
-    $results = [];
-    try {
-        $sql = "
-        SELECT
-            ma.title,
-            ma.file_name,
-            ma.file_path,
-            dm.page_count,
-            dm.is_searchable
-        FROM multimedia_asset ma
-        JOIN document_metadata dm ON ma.asset_id = dm.asset_id
-        WHERE dm.page_count >= ?
-        ORDER BY dm.page_count DESC
-        ";
-        $stmt = mysqli_prepare($conn, $sql);
-        if ($stmt) {
-            mysqli_stmt_bind_param($stmt, "i", $pageCount);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            while ($row = $result->fetch_assoc()) {
-                $results[] = $row;
-            }
-            mysqli_stmt_close($stmt);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("CBR document search error: " . $e->getMessage());
-        throw $e;
-    }
-    return $results;
-}
-
-// ==========================================================================
-// QUERY 15: TBR Full-Text Search
-// ==========================================================================
-function tbrSearch($conn, $query_term) {
-    $result = null;
-    try {
-        // Query: SELECT ma.*, v.*, tm.keywords, tm.tags, tm.captions, tm.description,
-        //        MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-        //        FROM multimedia_asset ma
-        //        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-        //        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-        //        WHERE [conditions] ORDER BY relevance DESC, ma.upload_date DESC
-        // Fetches all vstu columns: id, matric_no, full_name, phone_no, group_no,
-        // life_motto, password, photoStu, photoStu_date, docStu, docStu_date,
-        // audioStu, audioStu_date, videoStu, videoStu_date
-        $sql = "
-        SELECT
-            ma.*,
-            v.*,
-            tm.keywords,
-            tm.tags,
-            tm.captions,
-            tm.description,
-            MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE) AS relevance
-        FROM multimedia_asset ma
-        JOIN text_metadata tm ON ma.asset_id = tm.asset_id
-        LEFT JOIN mmdb2026.vstu v ON ma.matric_number = v.matric_no
-        WHERE
-            MATCH(tm.keywords, tm.tags, tm.description) AGAINST (? IN NATURAL LANGUAGE MODE)
-            OR ma.title LIKE ?
-            OR tm.captions LIKE ?
-        ORDER BY relevance DESC, ma.upload_date DESC
-        ";
-
-        $stmt = mysqli_prepare($conn, $sql);
-        if ($stmt) {
-            $likeTerm = '%' . $query_term . '%';
-            mysqli_stmt_bind_param($stmt, "ssss", $query_term, $query_term, $likeTerm, $likeTerm);
-            mysqli_stmt_execute($stmt);
-            $result = mysqli_stmt_get_result($stmt);
-            mysqli_stmt_close($stmt);
-        }
-    } catch (mysqli_sql_exception $e) {
-        error_log("TBR search error: " . $e->getMessage());
-        throw $e;
-    }
-    return $result;
-}
-
-// ==========================================================================
-// QUERY 16: Get Suggested Tags
+// QUERY 11: Get Suggested Tags (from vstu data)
 // ==========================================================================
 function getSuggestedTags($conn) {
     $suggestedTags = [];
     try {
         if ($conn !== null) {
-            $tagResult = $conn->query("SELECT tags FROM text_metadata WHERE tags IS NOT NULL AND tags <> '' LIMIT 50");
-            if ($tagResult) {
-                $seen = [];
-                while ($row = $tagResult->fetch_assoc()) {
-                    foreach (explode(',', $row['tags']) as $tag) {
-                        $tag = trim($tag);
-                        if ($tag !== '' && !isset($seen[$tag])) {
-                            $seen[$tag] = true;
-                            $suggestedTags[] = $tag;
-                        }
-                        if (count($suggestedTags) >= 8) break 2;
-                    }
+            // Get distinct groups as tags
+            $result = $conn->query("SELECT DISTINCT group_no FROM mmdb2026.vstu WHERE group_no IS NOT NULL AND group_no != '' LIMIT 10");
+            if ($result) {
+                while ($row = $result->fetch_assoc()) {
+                    $suggestedTags[] = $row['group_no'];
                 }
             }
         }
     } catch (mysqli_sql_exception $e) {
-        // Non-critical — suggestions are a convenience feature, so fail quietly here
         $suggestedTags = [];
     }
     return $suggestedTags;
