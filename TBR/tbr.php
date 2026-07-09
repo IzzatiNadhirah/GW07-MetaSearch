@@ -1,18 +1,15 @@
 <?php
 // ==========================================================================
 // tbr.php
-// Text-Based Retrieval (TBR) — per proposal section 3B:
-// Searches multimedia content using textual information:
-// File Title, Keywords, Tags, Captions, Descriptions.
+// Text-Based Retrieval (TBR) — Now searches mmdb2026.vstu table only.
+// Searches: full_name, matric_no, group_no, life_motto
 // ==========================================================================
 
 require_once __DIR__ . '/../config/db_connect.php';
 require_once __DIR__ . '/../config/db_queries.php';
 
-// ✅ FIXED: Get connection from GLOBALS array
 $conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
 
-// ✅ FIXED: Check if connection exists and is valid
 if ($conn === null || !$conn->ping()) {
     $conn_error = "Database connection is not available.";
 } else {
@@ -21,12 +18,11 @@ if ($conn === null || !$conn->ping()) {
 
 $search_performed = false;
 $error_message = null;
-$result = null;
+$results = [];
 $query_term = isset($_GET['q']) ? trim($_GET['q']) : '';
 
 // --------------------------------------------------------------------------
-// Suggested tags: pull a handful of distinct tags from text_metadata so users
-// have something to click instead of guessing keywords cold.
+// Suggested tags: pull distinct groups from vstu
 // --------------------------------------------------------------------------
 $suggestedTags = getSuggestedTags($conn);
 
@@ -37,20 +33,16 @@ if (isset($_GET['search'])) {
     $search_performed = true;
 
     if ($query_term === '') {
-        $error_message = "Please enter a keyword, tag, or title to search for.";
+        $error_message = "Please enter a keyword, tag, or name to search for.";
     } elseif ($conn_error !== null) {
         $error_message = $conn_error;
     } else {
         try {
-            // Execute TBR search using centralized function
-            $result = tbrSearch($conn, $query_term);
-            
-            if ($result === false) {
-                $error_message = "Failed to execute search query.";
+            $results = tbrSearch($conn, $query_term);
+            if (empty($results)) {
+                $error_message = "No results found for your search.";
             }
         } catch (mysqli_sql_exception $e) {
-            // MATCH AGAINST can throw for very short search terms depending on
-            // ft_min_word_len — surface this clearly instead of a raw fatal error.
             $error_message = "Search failed: " . $e->getMessage();
         } catch (Exception $e) {
             $error_message = "Error: " . $e->getMessage();
@@ -68,9 +60,6 @@ if (isset($_GET['search'])) {
 </head>
 <body>
 
-    <!-- ==============================================================
-    SIDEBAR (Unified Navigation)
-    ============================================================== -->
     <aside class="sidebar">
         <h2>MetaSearch</h2>
         <ul>
@@ -81,21 +70,18 @@ if (isset($_GET['search'])) {
         </ul>
     </aside>
 
-    <!-- ==============================================================
-    MAIN CONTENT
-    ============================================================== -->
     <main class="main-content fade-in">
     <div class="container">
         <div class="header">
             <h1>Text-Based Retrieval (TBR)</h1>
-            <div class="subtitle">Search multimedia files by keywords, tags, title, or description</div>
+            <div class="subtitle">Search students by name, matric number, group, or motto</div>
         </div>
 
         <div class="panel">
             <form method="GET" class="search-form">
                 <div class="form-group" style="flex: 3;">
-                    <label for="q">Keyword / Tag / Title</label>
-                    <input type="text" id="q" name="q" placeholder="e.g. sunset, lecture notes, product demo..."
+                    <label for="q">Search Term</label>
+                    <input type="text" id="q" name="q" placeholder="e.g. student name, matric number, group..."
                            value="<?php echo htmlspecialchars($query_term); ?>" required>
                 </div>
                 <div class="search-actions">
@@ -105,13 +91,13 @@ if (isset($_GET['search'])) {
             </form>
 
             <div class="hint">
-                <strong>Note:</strong> Matches against title, keywords, tags, captions, and descriptions.
-                <span class="operator-badge">MATCH / LIKE</span>
+                <strong>Note:</strong> Searches against full_name, matric_no, group_no, and life_motto.
+                <span class="operator-badge">LIKE</span>
             </div>
 
             <?php if (!empty($suggestedTags)): ?>
                 <div class="features-section">
-                    <h3>Suggested Tags</h3>
+                    <h3>Suggested Groups</h3>
                     <div>
                         <?php foreach ($suggestedTags as $tag): ?>
                             <a class="tag-chip" href="tbr.php?search=1&q=<?php echo urlencode($tag); ?>">#<?php echo htmlspecialchars($tag); ?></a>
@@ -131,41 +117,65 @@ if (isset($_GET['search'])) {
             <div class="results-section">
                 <div class="results-header">
                     <span class="results-count">
-                        Found <strong><?php echo $result ? mysqli_num_rows($result) : 0; ?></strong> result(s)
+                        Found <strong><?php echo count($results); ?></strong> result(s)
                     </span>
                     <span class="results-info">
                         Query: <span>"<?php echo htmlspecialchars($query_term); ?>"</span>
                     </span>
                 </div>
 
-                <?php if ($result && mysqli_num_rows($result) > 0): ?>
+                <?php if (!empty($results)): ?>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Title</th>
-                                    <th>File Name</th>
-                                    <th>Type</th>
-                                    <th>Owner</th>
-                                    <th>Tags</th>
-                                    <th>Keywords</th>
-                                    <th>Upload Date</th>
-                                    <th>Source</th>
+                                    <th>Matric No</th>
+                                    <th>Full Name</th>
+                                    <th>Group</th>
+                                    <th>Motto</th>
+                                    <th>Photo</th>
+                                    <th>Doc</th>
+                                    <th>Audio</th>
+                                    <th>Video</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php while ($row = mysqli_fetch_assoc($result)): ?>
+                                <?php foreach ($results as $row): ?>
                                     <tr>
-                                        <td><?php echo htmlspecialchars($row['title']); ?></td>
-                                        <td><?php echo htmlspecialchars($row['file_name']); ?></td>
-                                        <td><span class="badge badge-yes"><?php echo htmlspecialchars(strtoupper($row['file_type'])); ?></span></td>
-                                        <td><?php echo htmlspecialchars($row['full_name'] ?? 'Unknown'); ?></td>
-                                        <td><?php echo htmlspecialchars($row['tags'] ?? '-'); ?></td>
-                                        <td><?php echo htmlspecialchars($row['keywords'] ?? '-'); ?></td>
-                                        <td><?php echo htmlspecialchars($row['upload_date']); ?></td>
-                                        <td><a href="<?php echo htmlspecialchars($row['file_path']); ?>" target="_blank" class="btn-reset">Open</a></td>
+                                        <td><strong><?php echo htmlspecialchars($row['matric_no']); ?></strong></td>
+                                        <td><?php echo htmlspecialchars($row['full_name']); ?></td>
+                                        <td><?php echo htmlspecialchars($row['group_no'] ?? '-'); ?></td>
+                                        <td><?php echo htmlspecialchars($row['life_motto'] ?? '-'); ?></td>
+                                        <td>
+                                            <?php if (!empty($row['photoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['photoStu']); ?>" target="_blank" class="btn-reset">View</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['docStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['docStu']); ?>" target="_blank" class="btn-reset">View</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['audioStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['audioStu']); ?>" target="_blank" class="btn-reset">Play</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!empty($row['videoStu'])): ?>
+                                                <a href="<?php echo htmlspecialchars($row['videoStu']); ?>" target="_blank" class="btn-reset">Play</a>
+                                            <?php else: ?>
+                                                <span class="text-muted">-</span>
+                                            <?php endif; ?>
+                                        </td>
                                     </tr>
-                                <?php endwhile; ?>
+                                <?php endforeach; ?>
                             </tbody>
                         </table>
                     </div>
@@ -173,7 +183,7 @@ if (isset($_GET['search'])) {
                     <div class="no-results">
                         <span class="icon">🔍</span>
                         <h2>No Results Found</h2>
-                        <p>Try a different keyword, or check the suggested tags above.</p>
+                        <p>Try a different keyword, or check the suggested groups above.</p>
                     </div>
                 <?php endif; ?>
             </div>
