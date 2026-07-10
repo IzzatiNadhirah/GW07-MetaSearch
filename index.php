@@ -8,7 +8,6 @@ session_start();
 
 require_once 'config/db_connect.php';
 require_once 'config/db_queries.php';
-require_once 'sync_engine.php';
 
 // Get connection from GLOBALS array
 $conn = isset($GLOBALS['conn']) ? $GLOBALS['conn'] : null;
@@ -55,20 +54,7 @@ if (empty($selectedGroup) || !$groupExists) {
 $group = $selectedGroup;
 
 // --------------------------------------------------------------------------
-// 2. Trigger Dynamic Live Synchronization
-// --------------------------------------------------------------------------
-$targetRepository = "https://bitp3353.utem.edu.my/2026/all/";
-$syncStatus = "Success";
-$syncDetails = ['synced' => 0, 'skipped' => 0];
-
-try {
-    $syncDetails = syncPlatformData($targetRepository, $conn);
-} catch (Exception $e) {
-    $syncStatus = "Error: " . $e->getMessage();
-}
-
-// --------------------------------------------------------------------------
-// 3. Get Group Members from mmdb2026.vstu
+// 2. Get Group Members from vstu
 // --------------------------------------------------------------------------
 $members = [];
 $error_message = null;
@@ -85,7 +71,7 @@ if ($db_available && !empty($group)) {
 }
 
 // --------------------------------------------------------------------------
-// 4. Get Dashboard Statistics from vstu
+// 3. Get Dashboard Statistics from vstu
 // --------------------------------------------------------------------------
 $stats = ['total_students' => 0, 'groups' => 0, 'with_photo' => 0, 'with_doc' => 0, 'with_audio' => 0, 'with_video' => 0];
 $studentCount = 0;
@@ -100,7 +86,7 @@ if ($db_available) {
 }
 
 // --------------------------------------------------------------------------
-// 5. Handle Search (ABR + TBR combined)
+// 4. Handle Search (ABR + TBR combined)
 // --------------------------------------------------------------------------
 $searchResults = [];
 $searchPerformed = false;
@@ -127,6 +113,11 @@ if ($db_available && isset($_GET['search'])) {
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <style>
+        /* All text white for dark background */
+        body, .main-content, .container-fluid {
+            color: #ffffff !important;
+        }
+        
         .group-badge {
             background: rgba(0, 210, 255, 0.15);
             border: 1px solid var(--accent);
@@ -179,7 +170,7 @@ if ($db_available && isset($_GET['search'])) {
             min-width: 0;
         }
         .member-card .name {
-            color: #fff;
+            color: #ffffff !important;
             font-weight: 600;
             font-size: 1.05rem;
         }
@@ -189,7 +180,7 @@ if ($db_available && isset($_GET['search'])) {
             font-size: 0.9rem;
         }
         .member-card .motto {
-            color: var(--text-muted);
+            color: #c0c0c0 !important;
             font-size: 0.85rem;
             font-style: italic;
         }
@@ -205,22 +196,18 @@ if ($db_available && isset($_GET['search'])) {
             cursor: pointer;
             transition: all 0.2s;
             text-decoration: none;
+            color: #ffffff !important;
         }
         .member-card .media-icons .badge:hover {
             transform: scale(1.05);
             opacity: 0.9;
         }
-        .sync-status {
-            font-size: 0.85rem;
-        }
-        .sync-status .success { color: #4caf50; }
-        .sync-status .error { color: #ff6b6b; }
         .stat-icon {
             font-size: 2rem;
             opacity: 0.8;
         }
         .stat-label {
-            color: #cbd5e1 !important;
+            color: #ffffff !important;
             font-weight: 500;
         }
         .stat-value {
@@ -235,7 +222,7 @@ if ($db_available && isset($_GET['search'])) {
         }
         .sidebar .nav-link:hover {
             background: rgba(0, 210, 255, 0.1);
-            color: #fff;
+            color: #ffffff !important;
         }
         .sidebar .nav-link i {
             width: 20px;
@@ -247,7 +234,7 @@ if ($db_available && isset($_GET['search'])) {
         .error-banner {
             background: var(--error-bg, #2a1414);
             border: 1px solid var(--error-border, #5c1f1f);
-            color: var(--error-text, #ff6b6b);
+            color: #ff6b6b;
             padding: 14px 18px;
             border-radius: 6px;
             margin-bottom: 20px;
@@ -266,7 +253,7 @@ if ($db_available && isset($_GET['search'])) {
             background: var(--bg-panel);
             border: 1px solid var(--border-color);
             border-radius: 6px;
-            color: var(--text-main);
+            color: #ffffff !important;
             padding: 6px 12px;
             font-size: 0.9rem;
             width: 100%;
@@ -277,16 +264,16 @@ if ($db_available && isset($_GET['search'])) {
         }
         .group-dropdown option {
             background: var(--bg-primary);
-            color: var(--text-main);
+            color: #ffffff !important;
         }
         .group-dropdown option:disabled {
-            color: var(--text-dim);
+            color: #888888;
         }
         .sidebar .group-select-form {
             margin-bottom: 15px;
         }
         .sidebar .group-select-form .form-label {
-            color: var(--text-muted);
+            color: #ffffff !important;
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -294,16 +281,19 @@ if ($db_available && isset($_GET['search'])) {
             display: block;
         }
         .card-custom h6 {
-            color: #cbd5e1 !important;
+            color: #ffffff !important;
         }
         .card-custom h2 {
             color: #ffffff !important;
         }
+        .card-custom h5 {
+            color: #ffffff !important;
+        }
         .text-muted {
-            color: #94a3b8 !important;
+            color: #c0c0c0 !important;
         }
         .text-white-50 {
-            color: #94a3b8 !important;
+            color: #c0c0c0 !important;
         }
         .filter-section {
             display: flex;
@@ -312,7 +302,10 @@ if ($db_available && isset($_GET['search'])) {
             align-items: center;
         }
         .filter-section .form-check {
-            color: #cbd5e1;
+            color: #ffffff !important;
+        }
+        .filter-section .form-check-label {
+            color: #ffffff !important;
         }
         .filter-section .form-check-input {
             background-color: var(--bg-primary);
@@ -322,6 +315,64 @@ if ($db_available && isset($_GET['search'])) {
             background-color: var(--accent);
             border-color: var(--accent);
         }
+        .form-control, .form-select {
+            color: #ffffff !important;
+            background-color: #1a1a1a !important;
+            border-color: #2a2a2a !important;
+        }
+        .form-control::placeholder {
+            color: #888888 !important;
+        }
+        .form-control:focus, .form-select:focus {
+            color: #ffffff !important;
+            background-color: #1a1a1a !important;
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 0.25rem rgba(0, 210, 255, 0.25);
+        }
+        .table {
+            color: #ffffff !important;
+        }
+        .table td, .table th {
+            color: #ffffff !important;
+        }
+        .table .text-muted {
+            color: #c0c0c0 !important;
+        }
+        .table .text-info {
+            color: var(--accent) !important;
+        }
+        .badge {
+            color: #ffffff !important;
+        }
+        .badge.bg-secondary {
+            background-color: #444444 !important;
+        }
+        .btn-outline-primary, .btn-outline-danger, .btn-outline-warning, .btn-outline-success {
+            color: #ffffff !important;
+        }
+        .btn-outline-primary:hover, .btn-outline-danger:hover, .btn-outline-warning:hover, .btn-outline-success:hover {
+            color: #000000 !important;
+        }
+        .footer {
+            color: #c0c0c0 !important;
+        }
+        .sidebar h3 {
+            color: #ffffff !important;
+        }
+        .sidebar .small {
+            color: #c0c0c0 !important;
+        }
+        .sidebar .text-white-50 {
+            color: #c0c0c0 !important;
+        }
+        .sidebar hr {
+            border-color: #333333 !important;
+        }
+        .sync-status {
+            font-size: 0.85rem;
+        }
+        .sync-status .success { color: #4caf50; }
+        .sync-status .error { color: #ff6b6b; }
     </style>
 </head>
 <body>
@@ -337,8 +388,8 @@ if ($db_available && isset($_GET['search'])) {
             </h3>
             
             <div class="mb-4">
-                <span class="badge bg-success sync-status">
-                    <i class="fa-solid fa-rotate me-1"></i> Live Connected
+                <span class="badge bg-success">
+                    <i class="fa-solid fa-database me-1"></i> Connected
                 </span>
             </div>
 
@@ -419,23 +470,13 @@ if ($db_available && isset($_GET['search'])) {
                 <div>
                     <h1 class="fw-bold text-cyan">PROJECT METADATA DASHBOARD</h1>
                     <p class="text-muted m-0">
-                        <i class="fa-solid fa-link me-1"></i>
-                        Repository: <code><?php echo htmlspecialchars($targetRepository); ?></code>
-                    </p>
-                    <p class="text-muted m-0 sync-status">
-                        <i class="fa-solid fa-rotate me-1"></i>
-                        Sync Status: 
-                        <span class="<?php echo $syncStatus === 'Success' ? 'success' : 'error'; ?>">
-                            <?php echo htmlspecialchars($syncStatus); ?>
-                        </span>
-                        <?php if ($syncStatus === 'Success'): ?>
-                            (<?php echo $syncDetails['synced']; ?> synced, <?php echo $syncDetails['skipped']; ?> skipped)
-                        <?php endif; ?>
+                        <i class="fa-solid fa-database me-1"></i>
+                        Database: <code>gw07</code>
                     </p>
                 </div>
                 <div>
                     <button onclick="window.location.reload();" class="btn btn-outline-info">
-                        <i class="fa-solid fa-arrows-rotate me-2"></i>Force Resync
+                        <i class="fa-solid fa-arrows-rotate me-2"></i>Refresh
                     </button>
                 </div>
             </header>
@@ -458,7 +499,7 @@ if ($db_available && isset($_GET['search'])) {
             <?php endif; ?>
 
             <!-- ============================================================
-            STATISTICS CARDS (from vstu only)
+            STATISTICS CARDS
             ============================================================ -->
             <div class="row g-4 mb-5">
                 <div class="col-md-2">
@@ -608,7 +649,7 @@ if ($db_available && isset($_GET['search'])) {
             </div>
 
             <!-- ============================================================
-            SEARCH SECTION (ABR + TBR Combined) - Now searches vstu only
+            SEARCH SECTION (ABR + TBR Combined)
             ============================================================ -->
             <section class="card-custom p-4 mb-4">
                 <h5 class="fw-bold mb-3 text-cyan">
