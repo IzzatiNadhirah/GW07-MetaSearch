@@ -2,14 +2,26 @@
 -- gw07.sql - MetaSearch Database Schema
 -- ==========================================================================
 -- This script creates all necessary tables for the MetaSearch project.
--- Tables are dropped if they already exist to ensure a clean installation.
+-- Tables are dropped in reverse order to avoid foreign key constraint errors.
+-- Tables are created in the correct order (parents before children).
 -- ==========================================================================
 
 -- ==========================================================================
--- 1. STUDENT CORE TABLE (dictionary compliant)
+-- DROP TABLES IN REVERSE ORDER (Children first, Parents last)
 -- ==========================================================================
+DROP TABLE IF EXISTS audio_metadata;
+DROP TABLE IF EXISTS video_metadata;
+DROP TABLE IF EXISTS image_metadata;
+DROP TABLE IF EXISTS document_metadata;
+DROP TABLE IF EXISTS text_metadata;
+DROP TABLE IF EXISTS multimedia_asset;
+DROP TABLE IF EXISTS vstu;
 DROP TABLE IF EXISTS student_users;
+DROP TABLE IF EXISTS system_metadata_analytics;
 
+-- ==========================================================================
+-- 1. STUDENT CORE TABLE (Parent - No Foreign Keys)
+-- ==========================================================================
 CREATE TABLE student_users (
     id INT(11) AUTO_INCREMENT PRIMARY KEY,
     matric_number VARCHAR(20) NOT NULL UNIQUE,
@@ -24,8 +36,6 @@ CREATE TABLE student_users (
 -- ==========================================================================
 -- 2. VSTU TABLE (Copy of mmdb2026.vstu for local use)
 -- ==========================================================================
-DROP TABLE IF EXISTS vstu;
-
 CREATE TABLE vstu (
     id INT(11),
     matric_no VARCHAR(20),
@@ -45,10 +55,8 @@ CREATE TABLE vstu (
 );
 
 -- ==========================================================================
--- 3. CENTRAL MULTIMEDIA ASSET TABLE
+-- 3. CENTRAL MULTIMEDIA ASSET TABLE (Child of student_users)
 -- ==========================================================================
-DROP TABLE IF EXISTS multimedia_asset;
-
 CREATE TABLE multimedia_asset (
     asset_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     matric_number VARCHAR(20) NOT NULL,
@@ -65,10 +73,8 @@ CREATE TABLE multimedia_asset (
 );
 
 -- ==========================================================================
--- 4. IMAGE METADATA
+-- 4. IMAGE METADATA (Child of multimedia_asset)
 -- ==========================================================================
-DROP TABLE IF EXISTS image_metadata;
-
 CREATE TABLE image_metadata (
     image_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     asset_id INT(11) NOT NULL UNIQUE,
@@ -80,10 +86,8 @@ CREATE TABLE image_metadata (
 );
 
 -- ==========================================================================
--- 5. AUDIO METADATA
+-- 5. AUDIO METADATA (Child of multimedia_asset)
 -- ==========================================================================
-DROP TABLE IF EXISTS audio_metadata;
-
 CREATE TABLE audio_metadata (
     audio_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     asset_id INT(11) NOT NULL UNIQUE,
@@ -94,10 +98,8 @@ CREATE TABLE audio_metadata (
 );
 
 -- ==========================================================================
--- 6. VIDEO METADATA
+-- 6. VIDEO METADATA (Child of multimedia_asset)
 -- ==========================================================================
-DROP TABLE IF EXISTS video_metadata;
-
 CREATE TABLE video_metadata (
     video_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     asset_id INT(11) NOT NULL UNIQUE,
@@ -108,10 +110,8 @@ CREATE TABLE video_metadata (
 );
 
 -- ==========================================================================
--- 7. DOCUMENT METADATA
+-- 7. DOCUMENT METADATA (Child of multimedia_asset)
 -- ==========================================================================
-DROP TABLE IF EXISTS document_metadata;
-
 CREATE TABLE document_metadata (
     document_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     asset_id INT(11) NOT NULL UNIQUE,
@@ -121,10 +121,8 @@ CREATE TABLE document_metadata (
 );
 
 -- ==========================================================================
--- 8. TEXT METADATA (TBR)
+-- 8. TEXT METADATA (Child of multimedia_asset - for TBR)
 -- ==========================================================================
-DROP TABLE IF EXISTS text_metadata;
-
 CREATE TABLE text_metadata (
     text_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     asset_id INT(11) NOT NULL UNIQUE,
@@ -137,10 +135,8 @@ CREATE TABLE text_metadata (
 );
 
 -- ==========================================================================
--- 9. SYSTEM ANALYTICS (Dashboard)
+-- 9. SYSTEM ANALYTICS (Dashboard - No Foreign Keys)
 -- ==========================================================================
-DROP TABLE IF EXISTS system_metadata_analytics;
-
 CREATE TABLE system_metadata_analytics (
     sys_id INT(11) AUTO_INCREMENT PRIMARY KEY,
     total_tracked_users INT(11) DEFAULT 0,
