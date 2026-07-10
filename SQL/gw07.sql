@@ -22,7 +22,30 @@ CREATE TABLE student_users (
 );
 
 -- ==========================================================================
--- 2. CENTRAL MULTIMEDIA ASSET TABLE
+-- 2. VSTU TABLE (Copy of mmdb2026.vstu for local use)
+-- ==========================================================================
+DROP TABLE IF EXISTS vstu;
+
+CREATE TABLE vstu (
+    id INT(11),
+    matric_no VARCHAR(20),
+    full_name VARCHAR(100),
+    phone_no VARCHAR(20),
+    group_no VARCHAR(10),
+    life_motto TEXT,
+    password VARCHAR(100),
+    photoStu VARCHAR(255),
+    photoStu_date DATE,
+    docStu VARCHAR(255),
+    docStu_date DATE,
+    audioStu VARCHAR(255),
+    audioStu_date DATE,
+    videoStu VARCHAR(255),
+    videoStu_date DATE
+);
+
+-- ==========================================================================
+-- 3. CENTRAL MULTIMEDIA ASSET TABLE
 -- ==========================================================================
 DROP TABLE IF EXISTS multimedia_asset;
 
@@ -42,7 +65,7 @@ CREATE TABLE multimedia_asset (
 );
 
 -- ==========================================================================
--- 3. IMAGE METADATA
+-- 4. IMAGE METADATA
 -- ==========================================================================
 DROP TABLE IF EXISTS image_metadata;
 
@@ -57,7 +80,7 @@ CREATE TABLE image_metadata (
 );
 
 -- ==========================================================================
--- 4. AUDIO METADATA
+-- 5. AUDIO METADATA
 -- ==========================================================================
 DROP TABLE IF EXISTS audio_metadata;
 
@@ -71,7 +94,7 @@ CREATE TABLE audio_metadata (
 );
 
 -- ==========================================================================
--- 5. VIDEO METADATA
+-- 6. VIDEO METADATA
 -- ==========================================================================
 DROP TABLE IF EXISTS video_metadata;
 
@@ -85,7 +108,7 @@ CREATE TABLE video_metadata (
 );
 
 -- ==========================================================================
--- 6. DOCUMENT METADATA
+-- 7. DOCUMENT METADATA
 -- ==========================================================================
 DROP TABLE IF EXISTS document_metadata;
 
@@ -98,7 +121,7 @@ CREATE TABLE document_metadata (
 );
 
 -- ==========================================================================
--- 7. TEXT METADATA (TBR)
+-- 8. TEXT METADATA (TBR)
 -- ==========================================================================
 DROP TABLE IF EXISTS text_metadata;
 
@@ -114,7 +137,7 @@ CREATE TABLE text_metadata (
 );
 
 -- ==========================================================================
--- 8. SYSTEM ANALYTICS (Dashboard)
+-- 9. SYSTEM ANALYTICS (Dashboard)
 -- ==========================================================================
 DROP TABLE IF EXISTS system_metadata_analytics;
 
